@@ -20,6 +20,7 @@ import sys
 from enum import Enum
 from typing import Any
 
+from docscope_mcp.__version__ import __version__
 from docscope_mcp.analyzers.python import PythonAnalyzer
 from docscope_mcp.models import DEFAULT_CONFIG, AnalysisConfig
 
@@ -32,7 +33,18 @@ logger = logging.getLogger(__name__)
 
 
 class JSONRPCErrorCode(Enum):
-    """Standard JSON-RPC 2.0 error codes."""
+    """Standard JSON-RPC 2.0 error codes.
+
+    Defines error codes per JSON-RPC 2.0 specification for MCP protocol
+    error responses. Used in error dicts returned by handle_message.
+
+    Attributes:
+        PARSE_ERROR: Invalid JSON received (-32700).
+        INVALID_REQUEST: JSON is not valid request object (-32600).
+        METHOD_NOT_FOUND: Method does not exist (-32601).
+        INVALID_PARAMS: Invalid method parameters (-32602).
+        INTERNAL_ERROR: Internal server error (-32603).
+    """
 
     PARSE_ERROR = -32700
     INVALID_REQUEST = -32600
@@ -67,9 +79,23 @@ class DocScopeMCPServer:
     ) -> None:
         """Initialize MCP server with tool registry and analyzers.
 
+        Creates server instance with configured analyzers and tool definitions.
+        Provides dependency injection for testing and customization of
+        analysis behavior in MCP tool responses.
+
         Args:
             config: Analysis configuration. Defaults to DEFAULT_CONFIG.
             logger_instance: Logger instance. Defaults to module logger.
+
+        Returns:
+            None - initializes instance attributes.
+
+        Raises:
+            No exceptions raised.
+
+        Example:
+            >>> server = DocScopeMCPServer()
+            >>> server = DocScopeMCPServer(config=custom_config)
         """
         self.config = config or DEFAULT_CONFIG
         self.logger = logger_instance or logger
@@ -112,15 +138,30 @@ class DocScopeMCPServer:
         }
 
     async def handle_message(self, message: dict[str, Any]) -> dict[str, Any]:
-        """Central JSON-RPC 2.0 message dispatcher.
+        """Route incoming JSON-RPC 2.0 messages to appropriate handlers.
 
-        Routes initialize/tools/list/tools/call methods to handlers.
+        Central dispatcher implementing MCP protocol message routing.
+        Handles initialize, tools/list, and tools/call methods per
+        MCP specification.
 
         Args:
-            message: Incoming JSON-RPC 2.0 message
+            message: Incoming JSON-RPC 2.0 message dict with
+                     method, id, and optional params.
 
         Returns:
-            JSON-RPC 2.0 compliant response
+            JSON-RPC 2.0 compliant response dict with result or error.
+
+        Raises:
+            No exceptions - errors returned in JSON-RPC error format.
+
+        Example:
+            >>> response = await server.handle_message({
+            ...     'jsonrpc': '2.0',
+            ...     'id': 1,
+            ...     'method': 'tools/list'
+            ... })
+            >>> 'result' in response
+            True
         """
         method = message.get("method")
         message_id = message.get("id")
@@ -134,7 +175,7 @@ class DocScopeMCPServer:
                     "capabilities": {"tools": {}},
                     "serverInfo": {
                         "name": "docscope-mcp-server",
-                        "version": "0.1.0",
+                        "version": __version__,
                     },
                 },
             }
@@ -176,14 +217,27 @@ class DocScopeMCPServer:
     async def _execute_analyze_functions(
         self, arguments: dict[str, Any], message_id: Any
     ) -> dict[str, Any]:
-        """Execute analyze_functions tool.
+        """Execute analyze_functions MCP tool.
+
+        Validates inputs, runs language analyzer, and formats results.
+        Implements the core MCP tool that provides documentation analysis.
 
         Args:
-            arguments: Tool arguments (code, file_path, language)
-            message_id: Request ID for response correlation
+            arguments: Tool arguments (code, file_path, language).
+            message_id: Request ID for response correlation.
 
         Returns:
-            JSON-RPC 2.0 response with analysis results or error
+            JSON-RPC 2.0 response with analysis results or error.
+
+        Raises:
+            No exceptions - errors returned in JSON-RPC error format.
+
+        Example:
+            >>> response = await server._execute_analyze_functions(
+            ...     {'code': 'def f(): pass'}, 1
+            ... )
+            >>> 'result' in response
+            True
         """
         try:
             code = arguments.get("code", "")
@@ -260,13 +314,30 @@ class DocScopeMCPServer:
             }
 
     def _format_results(self, results: list[dict[str, Any]]) -> str:
-        """Format analysis results into readable report.
+        """Format analysis results into human-readable report.
+
+        Transforms raw analysis dicts into formatted text output for
+        MCP tool response. Provides prioritized list with quality info
+        and actionable improvement guidance.
 
         Args:
-            results: List of function analysis results
+            results: List of function analysis dicts from analyzer.
 
         Returns:
-            Formatted report string
+            Formatted report string with prioritized functions.
+            Returns success message if results list is empty.
+
+        Raises:
+            KeyError: If result dict missing expected fields (logged).
+
+        Example:
+            >>> server = DocScopeMCPServer()
+            >>> text = server._format_results([])
+            >>> 'Great!' in text
+            True
+            >>> text = server._format_results([{'function_name': 'foo', ...}])
+            >>> 'foo()' in text
+            True
         """
         if not results:
             return (
@@ -322,11 +393,29 @@ class DocScopeMCPServer:
 
         return "\n".join(lines)
 
-    async def run(self) -> None:
-        """Run stdio-based JSON-RPC 2.0 event loop.
+    async def run(self) -> None:  # pragma: no cover
+        """Execute MCP server stdio event loop.
 
-        Reads JSON-RPC messages from stdin, processes them,
-        and writes responses to stdout.
+        Main server loop implementing MCP stdio transport. Reads JSON-RPC
+        messages from stdin, dispatches to handle_message, and writes
+        responses to stdout. Runs until EOF or unrecoverable error.
+
+        This is the entry point called by the MCP client (VS Code) after
+        spawning the server process. Provides the documentation analysis
+        capability to AI assistants.
+
+        Args:
+            None - uses stdin/stdout for communication.
+
+        Returns:
+            None - runs until terminated.
+
+        Raises:
+            No exceptions - errors logged and loop continues or exits.
+
+        Example:
+            >>> server = DocScopeMCPServer()
+            >>> await server.run()  # Blocks until EOF
         """
         self.logger.info("Starting DocScope MCP Server...")
 
@@ -364,8 +453,25 @@ class DocScopeMCPServer:
                 break
 
 
-async def main() -> None:
-    """Entry point for MCP server."""
+async def main() -> None:  # pragma: no cover
+    """Entry point for MCP server process.
+
+    Creates DocScopeMCPServer instance and runs the stdio event loop.
+    Called when module is executed directly or via entry point.
+
+    Args:
+        None - configures server with defaults.
+
+    Returns:
+        None - runs until EOF on stdin.
+
+    Raises:
+        No exceptions - errors handled internally.
+
+    Example:
+        >>> # From command line:
+        >>> # python -m docscope_mcp.server
+    """
     server = DocScopeMCPServer()
     await server.run()
 

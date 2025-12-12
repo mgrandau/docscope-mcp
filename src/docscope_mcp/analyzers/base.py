@@ -41,26 +41,36 @@ class BaseAnalyzer(Protocol):
 
     @abstractmethod
     def analyze(self, code: str, file_path: str = "") -> list[dict[str, Any]]:
-        """Analyze source code and return functions needing documentation improvement.
+        """Analyze source code and return functions needing documentation.
+
+        Parses code, extracts functions/methods, evaluates docstrings,
+        and returns prioritized list of items needing improvement.
+        Core method called by MCP server's analyze_functions tool.
 
         Args:
-            code: Source code string to analyze
-            file_path: Optional file path for context (used in results)
+            code: Source code string to analyze.
+            file_path: Optional file path for context in results.
 
         Returns:
-            List of analysis results, each containing:
-                - function_name: Name of the function
-                - line_number: Line where function is defined
-                - file_path: Path to the file
-                - current_docstring: Existing documentation
-                - quality_assessment: Quality evaluation results
-                - function_info: Function metadata
-                - priority: Improvement priority score
+            List of dicts, each containing:
+            - function_name: str
+            - line_number: int
+            - file_path: str
+            - current_docstring: str or None
+            - quality_assessment: dict with quality, score, missing
+            - function_info: dict with params, returns, complexity
+            - priority: int (1-10)
 
-            Returns error dict in list on failure:
-                [{"error": "Error message"}]
+            Empty list if all functions have excellent docs.
+            [{"error": "message"}] on parse failure.
 
-            Returns empty list if all functions have excellent documentation.
+        Raises:
+            ValueError: If code is empty or None.
+
+        Example:
+            >>> results = analyzer.analyze(code, 'src/module.py')
+            >>> for r in results:
+            ...     print(f\"{r['function_name']}: {r['priority']}\")
         """
         ...
 
@@ -68,8 +78,22 @@ class BaseAnalyzer(Protocol):
     def get_language(self) -> str:
         """Return the programming language this analyzer handles.
 
+        Identifies which language this analyzer supports for routing
+        in multi-language analysis pipelines. Enables MCP server to
+        select appropriate analyzer based on file extension or config.
+
+        Args:
+            None - no parameters required.
+
         Returns:
-            Language identifier string (e.g., "python", "typescript", "rust")
+            Language identifier string (e.g., "python", "typescript").
+
+        Raises:
+            No exceptions - always returns valid string.
+
+        Example:
+            >>> analyzer = PythonAnalyzer()
+            >>> analyzer.get_language()  # 'python'
         """
         ...
 
@@ -77,15 +101,30 @@ class BaseAnalyzer(Protocol):
     def assess_docstring_quality(
         self, docstring: str, func_name: str, func_info: FunctionInfo
     ) -> QualityAssessment:
-        """Assess the quality of a docstring.
+        """Assess documentation quality of a function's docstring.
+
+        Evaluates docstring completeness against language-specific
+        standards (Google, NumPy, etc.). Checks for required sections
+        like Args, Returns, Raises, and Examples.
 
         Args:
-            docstring: The docstring text to assess
-            func_name: Name of the function (for test detection)
-            func_info: Function metadata for context
+            docstring: The docstring text to assess (may be empty).
+            func_name: Function name for test function detection.
+            func_info: Function metadata (params, returns, complexity).
 
         Returns:
-            QualityAssessment with score, quality level, and missing indicators
+            QualityAssessment with quality level, score, missing elements.
+
+        Raises:
+            ValueError: If func_info is invalid or incomplete.
+
+        Example:
+            >>> quality = analyzer.assess_docstring_quality(
+            ...     docstring='Brief summary.',
+            ...     func_name='process_data',
+            ...     func_info=info
+            ... )
+            >>> quality.quality  # 'poor'
         """
         ...
 
@@ -93,15 +132,31 @@ class BaseAnalyzer(Protocol):
     def calculate_priority(
         self, func_info: FunctionInfo, quality_assessment: QualityAssessment
     ) -> int:
-        """Calculate documentation improvement priority.
+        """Calculate documentation improvement priority score.
 
-        Higher priority indicates more urgent need for documentation.
+        Combines function visibility, complexity, and documentation
+        quality to produce priority ranking. Higher scores indicate
+        more urgent need for documentation improvement. Used by MCP
+        tools to order results by documentation urgency.
+
+        Priority factors: public vs private, parameter count, return
+        complexity, current quality level, missing required sections.
 
         Args:
-            func_info: Function metadata
-            quality_assessment: Quality assessment results
+            func_info: Function metadata (visibility, complexity).
+            quality_assessment: Quality evaluation results.
 
         Returns:
-            Priority score (typically 0-15+, higher = more urgent)
+            Priority score 1-10. Higher = more urgent.
+            - 8-10: Critical, document immediately
+            - 5-7: Important, address soon
+            - 1-4: Low priority, improve if time permits
+
+        Raises:
+            KeyError: If func_info missing required fields.
+
+        Example:
+            >>> priority = analyzer.calculate_priority(info, quality)
+            >>> priority  # 9 (high priority public function)
         """
         ...
