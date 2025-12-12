@@ -9,6 +9,7 @@ Commands:
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -131,6 +132,74 @@ def get_vscode_mcp_path(global_install: bool = False, insiders: bool = False) ->
         return Path.cwd() / ".vscode" / "mcp.json"
 
 
+def get_assets_dir() -> Path:
+    """Get the path to bundled assets directory.
+
+    Returns the path to the assets directory within the installed package.
+    Assets include prompts and utils bundled during pip install.
+
+    Returns:
+        Path to the assets directory.
+
+    Raises:
+        FileNotFoundError: If assets directory not found in package.
+    """
+    # Assets are in package's assets/ subdirectory
+    package_dir = Path(__file__).parent
+    assets_dir = package_dir / "assets"
+    if not assets_dir.exists():
+        raise FileNotFoundError(f"Assets directory not found: {assets_dir}")
+    return assets_dir
+
+
+def copy_assets() -> tuple[int, list[str]]:
+    """Copy bundled prompts and utils to current workspace.
+
+    Copies prompt templates to .github/prompts/ and utility scripts
+    to utils/ in the current working directory. Skips files that
+    already exist to preserve user customizations.
+
+    Returns:
+        Tuple of (exit_code, list of copied file descriptions).
+        Exit code 0 on success, 1 on failure.
+
+    Raises:
+        No exceptions - errors returned in tuple.
+    """
+    copied: list[str] = []
+    try:
+        assets_dir = get_assets_dir()
+    except FileNotFoundError as e:
+        return 1, [f"Warning: {e}"]
+
+    workspace = Path.cwd()
+
+    # Copy prompts to .github/prompts/
+    prompts_src = assets_dir / "prompts"
+    prompts_dst = workspace / ".github" / "prompts"
+    if prompts_src.exists():
+        prompts_dst.mkdir(parents=True, exist_ok=True)
+        for src_file in prompts_src.glob("*.md"):
+            dst_file = prompts_dst / src_file.name
+            if not dst_file.exists():
+                shutil.copy2(src_file, dst_file)
+                copied.append(f"  .github/prompts/{src_file.name}")
+
+    # Copy utils to utils/
+    utils_src = assets_dir / "utils"
+    utils_dst = workspace / "utils"
+    if utils_src.exists():
+        utils_dst.mkdir(parents=True, exist_ok=True)
+        for src_file in utils_src.iterdir():
+            if src_file.is_file():
+                dst_file = utils_dst / src_file.name
+                if not dst_file.exists():
+                    shutil.copy2(src_file, dst_file)
+                    copied.append(f"  utils/{src_file.name}")
+
+    return 0, copied
+
+
 def install_mcp(global_install: bool = False, insiders: bool = False) -> int:
     """Install MCP server configuration to VS Code.
 
@@ -187,6 +256,16 @@ def install_mcp(global_install: bool = False, insiders: bool = False) -> int:
 
     print(f"✓ DocScope MCP server installed ({location})")
     print(f"  Config: {mcp_path}")
+
+    # Copy assets for workspace installs only
+    if not global_install:
+        exit_code, copied = copy_assets()
+        if copied:
+            print()
+            print("Assets copied:")
+            for item in copied:
+                print(item)
+
     print()
     print("Reload VS Code window to activate the MCP server.")
     return 0

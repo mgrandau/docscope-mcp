@@ -16,6 +16,11 @@ docscope-mcp install
 
 This adds the server to `.vscode/mcp.json` in your current workspace. Reload VS Code to activate.
 
+Workspace installs also copy:
+
+- **Prompts** → `.github/prompts/` (AI prompt templates for code analysis)
+- **Utils** → `utils/` (batch analysis scripts)
+
 ### Global Install (Optional)
 
 To install globally for all VS Code workspaces:
@@ -44,3 +49,13 @@ docscope-mcp uninstall --global
 # Global (Insiders)
 docscope-mcp uninstall --global --insiders
 ```
+
+## Architecture Documentation
+
+For AI-readable architectural contracts and detailed component documentation:
+
+| Doc | Purpose |
+|-----|---------|
+| [src/docscope_mcp/README.md](src/docscope_mcp/README.md) | Core package architecture (server, analyzers, models) |
+| [tests/README.md](tests/README.md) | Test suite architecture, MockFilesystemAdapter |
+| [utils/README.md](utils/README.md) | Batch analysis utilities |
