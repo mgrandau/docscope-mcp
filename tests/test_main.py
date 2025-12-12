@@ -20,9 +20,9 @@ def test_version() -> None:
     Compare version string to expected value.
 
     Assertion Strategy:
-    Validates version equals '0.1.0' (current release).
+    Validates version equals '1.0.0' (current release).
     """
-    assert __version__ == "0.1.0"
+    assert __version__ == "1.0.0"
 
 
 def test_python_analyzer_available() -> None:

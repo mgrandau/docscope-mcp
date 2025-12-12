@@ -50,6 +50,7 @@ test = "python -m pytest tests/ -v"
 test-cov = "python -m pytest tests/ -v --cov=src/docscope_mcp --cov-branch --cov-report=term-missing"
 typecheck = "python -m mypy src"
 check-all = { composite = ["lint", "typecheck", "security", "test-cov"] }
+sync-assets = { shell = "cp .github/prompts/*.md src/docscope_mcp/assets/prompts/ && cp utils/*.py utils/*.md src/docscope_mcp/assets/utils/" }
 
 [tool.ruff]
 target-version = "py313"

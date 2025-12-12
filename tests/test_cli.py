@@ -271,3 +271,24 @@ class TestMain:
             result = main()
             assert result == 0
             assert expected_path_part in str(insiders_path)
+
+    @pytest.mark.parametrize(
+        ("command", "flags"),
+        [
+            ("install", ["--insiders"]),
+            ("install", ["-i"]),
+            ("uninstall", ["--insiders"]),
+            ("uninstall", ["-i"]),
+        ],
+        ids=[
+            "install_insiders_no_global",
+            "install_i_no_g",
+            "uninstall_insiders_no_global",
+            "uninstall_i_no_g",
+        ],
+    )
+    def test_insiders_requires_global(self, command: str, flags: list[str]) -> None:
+        """Verify --insiders without --global returns error."""
+        with patch.object(sys, "argv", ["docscope-mcp", command, *flags]):
+            result = main()
+            assert result == 1

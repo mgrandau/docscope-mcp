@@ -402,8 +402,14 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "install":
+        if args.insiders and not args.global_install:
+            print("Error: --insiders requires --global", file=sys.stderr)
+            return 1
         return install_mcp(global_install=args.global_install, insiders=args.insiders)
     elif args.command == "uninstall":
+        if args.insiders and not args.global_install:
+            print("Error: --insiders requires --global", file=sys.stderr)
+            return 1
         return uninstall_mcp(global_install=args.global_install, insiders=args.insiders)
     else:
         parser.print_help()
