@@ -15,10 +15,18 @@ QUICK START:
     # Run MCP server
     python -m docscope_mcp.server
 
-    # Use analyzer directly
-    from docscope_mcp.analyzers.python import PythonAnalyzer
+    # Analyze a file (auto-detect language)
+    from docscope_mcp.analyzers import analyze_file
+    results = analyze_file("example.py")
+
+    # Analyze code string with explicit language
+    from docscope_mcp.analyzers import analyze_code
+    results = analyze_code(code, language="python", file_path="example.py")
+
+    # Direct analyzer usage (internal API)
+    from docscope_mcp.analyzers import PythonAnalyzer
     analyzer = PythonAnalyzer()
-    results = analyzer.analyze(code, "example.py")
+    results = analyzer.analyze(code)  # No file_path parameter
 
 MCP TOOLS:
 1. analyze_functions - Analyze code and identify functions needing documentation

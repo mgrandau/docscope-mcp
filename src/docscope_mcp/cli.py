@@ -136,13 +136,22 @@ def get_assets_dir() -> Path:
     """Get the path to bundled assets directory.
 
     Returns the path to the assets directory within the installed package.
-    Assets include prompts and utils bundled during pip install.
+    Assets include prompt templates (.md files) and utility scripts bundled
+    during pip install. Used by copy_assets to deploy files to workspace.
+
+    Args:
+        None - uses package installation path.
 
     Returns:
-        Path to the assets directory.
+        Path to the assets directory within installed package.
 
     Raises:
         FileNotFoundError: If assets directory not found in package.
+
+    Example:
+        >>> assets = get_assets_dir()
+        >>> (assets / 'prompts').exists()
+        True
     """
     # Assets are in package's assets/ subdirectory
     package_dir = Path(__file__).parent
@@ -159,12 +168,24 @@ def copy_assets() -> tuple[int, list[str]]:
     to utils/ in the current working directory. Skips files that
     already exist to preserve user customizations.
 
+    Provides AI-friendly analysis prompts (analyze_source.prompt.md,
+    analyze_tests.prompt.md) and utility scripts for batch operations.
+
+    Args:
+        None - uses current working directory as destination.
+
     Returns:
         Tuple of (exit_code, list of copied file descriptions).
         Exit code 0 on success, 1 on failure.
+        File descriptions are relative paths like '  .github/prompts/analyze.md'.
 
     Raises:
         No exceptions - errors returned in tuple.
+
+    Example:
+        >>> exit_code, copied = copy_assets()
+        >>> if copied:
+        ...     print(f'Copied {len(copied)} files')
     """
     copied: list[str] = []
     try:

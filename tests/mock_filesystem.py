@@ -264,11 +264,18 @@ class MockFilesystemAdapter:
 
         Returns True if path is registered in symlinks dict.
 
+        Business context:
+            Security validation requires symlink detection to prevent
+            path traversal attacks via symbolic link exploitation.
+
         Args:
             path: Path to check.
 
         Returns:
             True if in symlinks dict, False otherwise.
+
+        Raises:
+            TypeError: If path is not a Path instance.
 
         Example:
             >>> fs.symlinks[Path('/workspace/link')] = Path('target')

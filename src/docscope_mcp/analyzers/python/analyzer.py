@@ -108,20 +108,18 @@ class PythonAnalyzer:
 
     # ==================== PUBLIC API ====================
 
-    def analyze(self, code: str, file_path: str = "") -> list[dict[str, Any]]:
+    def analyze(self, code: str) -> list[dict[str, Any]]:
         """Analyze Python code and return functions needing documentation.
 
         Parses Python source via AST, extracts functions, assesses docstring
-        quality, and returns prioritized improvement recommendations. Core
-        entry point for MCP analyze_functions tool.
+        quality, and returns prioritized improvement recommendations.
 
         Args:
             code: Python source code string to analyze.
-            file_path: Optional file path for context in results.
 
         Returns:
             Prioritized list of functions needing documentation (highest first).
-            Each dict contains function_name, line_number, file_path,
+            Each dict contains function_name, line_number,
             current_docstring, quality_assessment, function_info, priority.
 
             Returns [{"error": "message"}] on failure.
@@ -132,12 +130,12 @@ class PythonAnalyzer:
 
         Example:
             >>> analyzer = PythonAnalyzer()
-            >>> results = analyzer.analyze('def foo(): pass', 'example.py')
+            >>> results = analyzer.analyze('def foo(): pass')
             >>> results[0]['function_name']
             'foo'
         """
         # Security validation
-        security_error = self._validate_code_security(code, file_path)
+        security_error = self._validate_code_security(code)
         if security_error:
             return security_error
 
@@ -153,7 +151,7 @@ class PythonAnalyzer:
                 return [depth_error]
 
             # Extract and analyze functions
-            functions = self._extract_functions_needing_improvement(parse_result, file_path)
+            functions = self._extract_functions_needing_improvement(parse_result)
 
             # Sort by priority
             return self._sort_by_priority(functions)
@@ -300,16 +298,14 @@ class PythonAnalyzer:
 
     # ==================== SECURITY VALIDATION ====================
 
-    def _validate_code_security(self, code: str, file_path: str) -> list[dict[str, Any]] | None:
-        """Validate code and file path for security issues.
+    def _validate_code_security(self, code: str) -> list[dict[str, Any]] | None:
+        """Validate code for security issues.
 
         Pre-analysis security check preventing DoS attacks via oversized
-        code and path traversal via malicious file paths. Part of the
-        defense-in-depth security model for MCP tool inputs.
+        code. Part of the defense-in-depth security model.
 
         Args:
             code: Source code string to validate.
-            file_path: File path to validate for traversal patterns.
 
         Returns:
             None if validation passes.
@@ -327,12 +323,6 @@ class PythonAnalyzer:
         if len(code) > self.config.max_code_size:
             max_kb = self.config.max_code_size // 1024
             return [{"error": f"Code too large (max {max_kb}KB)"}]
-
-        # Validate file path
-        try:
-            self._validate_file_path(file_path)
-        except (TypeError, ValueError) as e:
-            return [{"error": str(e)}]
 
         return None
 
@@ -495,18 +485,14 @@ class PythonAnalyzer:
 
     # ==================== FUNCTION EXTRACTION ====================
 
-    def _extract_functions_needing_improvement(
-        self, tree: ast.AST, file_path: str
-    ) -> list[dict[str, Any]]:
+    def _extract_functions_needing_improvement(self, tree: ast.AST) -> list[dict[str, Any]]:
         """Extract functions that need documentation improvement.
 
         Walks AST tree, extracts function definitions, assesses each
-        docstring, and collects those needing improvement. Core analysis
-        loop that powers the MCP analyze_functions tool.
+        docstring, and collects those needing improvement.
 
         Args:
             tree: Parsed AST from Python source.
-            file_path: Source file path for result context.
 
         Returns:
             List of function dicts with name, line, quality, priority.
@@ -517,9 +503,7 @@ class PythonAnalyzer:
 
         Example:
             >>> tree = ast.parse('def foo(): pass')
-            >>> results = analyzer._extract_functions_needing_improvement(
-            ...     tree, 'example.py'
-            ... )
+            >>> results = analyzer._extract_functions_needing_improvement(tree)
             >>> len(results) >= 1
             True
         """
@@ -538,7 +522,6 @@ class PythonAnalyzer:
                         {
                             "function_name": func_info["name"],
                             "line_number": func_info["line"],
-                            "file_path": file_path,
                             "current_docstring": docstring,
                             "quality_assessment": quality,
                             "function_info": func_info,

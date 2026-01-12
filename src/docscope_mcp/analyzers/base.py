@@ -26,7 +26,7 @@ class BaseAnalyzer(Protocol):
     Examples:
         ```python
         class PythonAnalyzer:
-            def analyze(self, code: str, file_path: str = "") -> list[dict[str, Any]]:
+            def analyze(self, code: str) -> list[dict[str, Any]]:
                 # Parse Python code, assess docs, return results
                 ...
 
@@ -40,22 +40,20 @@ class BaseAnalyzer(Protocol):
     """
 
     @abstractmethod
-    def analyze(self, code: str, file_path: str = "") -> list[dict[str, Any]]:
+    def analyze(self, code: str) -> list[dict[str, Any]]:
         """Analyze source code and return functions needing documentation.
 
         Parses code, extracts functions/methods, evaluates docstrings,
         and returns prioritized list of items needing improvement.
-        Core method called by MCP server's analyze_functions tool.
+        Core method called by routing layer's analyze_code/analyze_file.
 
         Args:
             code: Source code string to analyze.
-            file_path: Optional file path for context in results.
 
         Returns:
             List of dicts, each containing:
             - function_name: str
             - line_number: int
-            - file_path: str
             - current_docstring: str or None
             - quality_assessment: dict with quality, score, missing
             - function_info: dict with params, returns, complexity
@@ -68,7 +66,7 @@ class BaseAnalyzer(Protocol):
             ValueError: If code is empty or None.
 
         Example:
-            >>> results = analyzer.analyze(code, 'src/module.py')
+            >>> results = analyzer.analyze(code)
             >>> for r in results:
             ...     print(f\"{r['function_name']}: {r['priority']}\")
         """

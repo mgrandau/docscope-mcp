@@ -19,7 +19,14 @@ from docscope_mcp.cli import (
 
 
 class TestGetVenvPython:
-    """Tests for get_venv_python function."""
+    """Test suite for get_venv_python function.
+
+    Categories:
+    1. Venv Detection - Platform-specific venv Python path (1 test)
+    2. Fallback Behavior - sys.executable when no venv (1 test)
+
+    Total: 2 tests.
+    """
 
     @pytest.mark.parametrize(
         ("platform", "venv_subpath", "python_name", "expected_contains"),
@@ -37,7 +44,29 @@ class TestGetVenvPython:
         python_name: str,
         expected_contains: list[str],
     ) -> None:
-        """Verify detection of venv Python path on different platforms."""
+        """Verifies detection of venv Python path on different platforms.
+
+        Tests platform-specific venv structure detection.
+
+        Business context:
+        MCP config needs correct Python path for venv activation.
+
+        Arrangement:
+        1. Parametrize with Linux (bin/python) and Windows (Scripts/python.exe).
+        2. Create temporary venv directory structure.
+        3. Create python binary file.
+
+        Action:
+        Call get_venv_python with mocked cwd and platform.
+
+        Assertion Strategy:
+        Validates detection by confirming:
+        - Result contains ".venv" directory.
+        - Result contains platform-specific python name.
+
+        Testing Principle:
+        Validates cross-platform, ensuring both platforms work.
+        """
         venv_dir = tmp_path / ".venv" / venv_subpath
         venv_dir.mkdir(parents=True)
         venv_python = venv_dir / python_name
@@ -65,7 +94,27 @@ class TestGetVenvPython:
         has_venv_dir: bool,
         has_python: bool,  # noqa: ARG002
     ) -> None:
-        """Verify fallback to sys.executable when venv unavailable."""
+        """Verifies fallback to sys.executable when venv unavailable.
+
+        Tests graceful fallback when venv structure missing.
+
+        Business context:
+        Global installs need fallback when no project venv exists.
+
+        Arrangement:
+        1. Parametrize with no venv and venv without python binary.
+        2. Create partial venv structure based on parameters.
+
+        Action:
+        Call get_venv_python with incomplete venv.
+
+        Assertion Strategy:
+        Validates fallback by confirming:
+        - Result equals sys.executable.
+
+        Testing Principle:
+        Validates resilience, ensuring fallback works.
+        """
         if has_venv_dir:
             (tmp_path / ".venv").mkdir()
 
@@ -75,10 +124,36 @@ class TestGetVenvPython:
 
 
 class TestGetMcpServerConfig:
-    """Tests for get_mcp_server_config function."""
+    """Test suite for get_mcp_server_config function.
+
+    Categories:
+    1. Config Structure - Valid MCP config format (1 test)
+
+    Total: 1 test.
+    """
 
     def test_returns_valid_config_structure(self) -> None:
-        """Verify config contains required MCP server fields."""
+        """Verifies config contains required MCP server fields.
+
+        Tests config generation for VS Code MCP format.
+
+        Business context:
+        VS Code requires specific config structure for MCP servers.
+
+        Arrangement:
+        1. No setup needed - tests pure function.
+
+        Action:
+        Call get_mcp_server_config.
+
+        Assertion Strategy:
+        Validates structure by confirming:
+        - "command" key present.
+        - "args" key present with module invocation.
+
+        Testing Principle:
+        Validates config format, ensuring VS Code compatibility.
+        """
         config = get_mcp_server_config()
         assert "command" in config
         assert "args" in config
@@ -86,7 +161,13 @@ class TestGetMcpServerConfig:
 
 
 class TestGetVscodeMcpPath:
-    """Tests for get_vscode_mcp_path function."""
+    """Test suite for get_vscode_mcp_path function.
+
+    Categories:
+    1. Path Variants - Workspace vs global, stable vs insiders (1 test)
+
+    Total: 1 test.
+    """
 
     @pytest.mark.parametrize(
         ("global_install", "insiders", "expected_parts"),
@@ -101,7 +182,27 @@ class TestGetVscodeMcpPath:
     def test_vscode_mcp_path(
         self, tmp_path: Path, global_install: bool, insiders: bool, expected_parts: list[str]
     ) -> None:
-        """Verify correct path returned for workspace vs global install."""
+        """Verifies correct path returned for workspace vs global install.
+
+        Tests path construction with all flag combinations.
+
+        Business context:
+        MCP config location differs between workspace and global installs.
+
+        Arrangement:
+        1. Parametrize with workspace, global-stable, global-insiders combinations.
+        2. Note insiders flag ignored for workspace installs.
+
+        Action:
+        Call get_vscode_mcp_path with flag combinations.
+
+        Assertion Strategy:
+        Validates path by confirming:
+        - All expected path parts present in result.
+
+        Testing Principle:
+        Validates path logic, ensuring correct locations.
+        """
         with patch("docscope_mcp.cli.Path.cwd", return_value=tmp_path):
             result = get_vscode_mcp_path(global_install=global_install, insiders=insiders)
             for part in expected_parts:
@@ -109,10 +210,39 @@ class TestGetVscodeMcpPath:
 
 
 class TestInstallMcp:
-    """Tests for install_mcp function."""
+    """Test suite for install_mcp function.
+
+    Categories:
+    1. New Config - Creates mcp.json when missing (1 test)
+    2. Existing Config - Preserves and updates existing (1 test)
+    3. Error Handling - Invalid JSON handling (1 test)
+
+    Total: 3 tests.
+    """
 
     def test_install_creates_new_config(self, tmp_path: Path) -> None:
-        """Verify install creates mcp.json when it doesn't exist."""
+        """Verifies install creates mcp.json when it doesn't exist.
+
+        Tests fresh installation on new project.
+
+        Business context:
+        First-time users need config created automatically.
+
+        Arrangement:
+        1. Use empty temporary directory (no .vscode).
+
+        Action:
+        Call install_mcp with workspace install.
+
+        Assertion Strategy:
+        Validates creation by confirming:
+        - Return code is 0 (success).
+        - mcp.json file exists.
+        - Config contains "docscope-mcp" server.
+
+        Testing Principle:
+        Validates initialization, ensuring clean install works.
+        """
         with patch("docscope_mcp.cli.Path.cwd", return_value=tmp_path):
             result = install_mcp(global_install=False)
 
@@ -133,7 +263,28 @@ class TestInstallMcp:
     def test_install_updates_existing_config(
         self, tmp_path: Path, initial_config: dict, expected_servers: list[str]
     ) -> None:
-        """Verify install preserves existing servers and handles missing keys."""
+        """Verifies install preserves existing servers and handles missing keys.
+
+        Tests merge behavior with existing configuration.
+
+        Business context:
+        Existing MCP servers must not be removed during install.
+
+        Arrangement:
+        1. Parametrize with existing servers and missing servers key.
+        2. Create mcp.json with initial config.
+
+        Action:
+        Call install_mcp on existing config.
+
+        Assertion Strategy:
+        Validates merge by confirming:
+        - Return code is 0 (success).
+        - All expected servers present in config.
+
+        Testing Principle:
+        Validates non-destructive update, ensuring safe merge.
+        """
         vscode_dir = tmp_path / ".vscode"
         vscode_dir.mkdir()
         mcp_path = vscode_dir / "mcp.json"
@@ -148,7 +299,26 @@ class TestInstallMcp:
                 assert server in config["servers"]
 
     def test_install_handles_invalid_json(self, tmp_path: Path) -> None:
-        """Verify install fails gracefully on invalid JSON."""
+        """Verifies install fails gracefully on invalid JSON.
+
+        Tests error handling for corrupted config files.
+
+        Business context:
+        Corrupted configs must fail with clear error, not corrupt further.
+
+        Arrangement:
+        1. Create mcp.json with invalid JSON content.
+
+        Action:
+        Call install_mcp on corrupted config.
+
+        Assertion Strategy:
+        Validates error handling by confirming:
+        - Return code is 1 (failure).
+
+        Testing Principle:
+        Validates error recovery, ensuring safe failure.
+        """
         vscode_dir = tmp_path / ".vscode"
         vscode_dir.mkdir()
         (vscode_dir / "mcp.json").write_text("{ invalid json }")
@@ -159,10 +329,38 @@ class TestInstallMcp:
 
 
 class TestUninstallMcp:
-    """Tests for uninstall_mcp function."""
+    """Test suite for uninstall_mcp function.
+
+    Categories:
+    1. Normal Removal - Removes server from config (1 test)
+    2. Edge Cases - Missing config, missing server, invalid JSON (1 test)
+
+    Total: 2 tests.
+    """
 
     def test_uninstall_removes_server(self, tmp_path: Path) -> None:
-        """Verify uninstall removes docscope-mcp from config."""
+        """Verifies uninstall removes docscope-mcp from config.
+
+        Tests server removal while preserving others.
+
+        Business context:
+        Uninstall must remove only docscope-mcp, keeping other servers.
+
+        Arrangement:
+        1. Create mcp.json with docscope-mcp and other-server.
+
+        Action:
+        Call uninstall_mcp.
+
+        Assertion Strategy:
+        Validates removal by confirming:
+        - Return code is 0 (success).
+        - "docscope-mcp" removed from config.
+        - "other-server" still present.
+
+        Testing Principle:
+        Validates surgical removal, ensuring no collateral damage.
+        """
         vscode_dir = tmp_path / ".vscode"
         vscode_dir.mkdir()
         mcp_path = vscode_dir / "mcp.json"
@@ -186,7 +384,29 @@ class TestUninstallMcp:
         ids=["missing_config", "missing_server", "invalid_json"],
     )
     def test_uninstall_edge_cases(self, tmp_path: Path, setup: str, expected_code: int) -> None:
-        """Verify uninstall handles various edge cases."""
+        """Verifies uninstall handles various edge cases.
+
+        Tests graceful handling of missing config, missing server, and invalid JSON.
+
+        Business context:
+        Uninstall must be idempotent and handle edge cases gracefully.
+
+        Arrangement:
+        1. Parametrize with no config, no server, and invalid JSON scenarios.
+        2. Setup each scenario with appropriate file state.
+
+        Action:
+        Call uninstall_mcp for each scenario.
+
+        Assertion Strategy:
+        Validates handling by confirming:
+        - Missing config returns 0 (already uninstalled).
+        - Missing server returns 0 (already removed).
+        - Invalid JSON returns 1 (error).
+
+        Testing Principle:
+        Validates idempotence, ensuring safe repeated calls.
+        """
         vscode_dir = tmp_path / ".vscode"
 
         if setup == "no_server":
@@ -203,7 +423,16 @@ class TestUninstallMcp:
 
 
 class TestMain:
-    """Tests for main CLI entry point."""
+    """Test suite for main CLI entry point.
+
+    Categories:
+    1. Command Dispatch - No command, install, uninstall (1 test)
+    2. Global Flag - --global flag handling (1 test)
+    3. Insiders Flag - --insiders flag for global operations (1 test)
+    4. Flag Validation - --insiders requires --global (1 test)
+
+    Total: 4 tests.
+    """
 
     @pytest.mark.parametrize(
         ("argv", "expected_exit", "check_file"),
@@ -217,7 +446,28 @@ class TestMain:
     def test_main_commands(
         self, tmp_path: Path, argv: list[str], expected_exit: int, check_file: str | None
     ) -> None:
-        """Verify main dispatches commands correctly."""
+        """Verifies main dispatches commands correctly.
+
+        Tests CLI argument parsing and command routing.
+
+        Business context:
+        CLI is primary user interface; must handle all commands.
+
+        Arrangement:
+        1. Parametrize with no command, install, and uninstall.
+        2. Mock sys.argv with test arguments.
+
+        Action:
+        Call main() with mocked arguments.
+
+        Assertion Strategy:
+        Validates dispatch by confirming:
+        - Return code matches expected.
+        - For install, config file created.
+
+        Testing Principle:
+        Validates CLI routing, ensuring commands work.
+        """
         with (
             patch.object(sys, "argv", argv),
             patch("docscope_mcp.cli.Path.cwd", return_value=tmp_path),
@@ -228,7 +478,28 @@ class TestMain:
                 assert (tmp_path / check_file).exists()
 
     def test_main_install_global_flag(self, tmp_path: Path) -> None:
-        """Verify main handles --global flag for install."""
+        """Verifies main handles --global flag for install.
+
+        Tests global installation path handling.
+
+        Business context:
+        Global installs enable MCP across all workspaces.
+
+        Arrangement:
+        1. Create mock home directory.
+        2. Mock sys.argv with --global flag.
+
+        Action:
+        Call main() with global install flag.
+
+        Assertion Strategy:
+        Validates global path by confirming:
+        - Return code is 0 (success).
+        - Config created in global path.
+
+        Testing Principle:
+        Validates global mode, ensuring correct path used.
+        """
         home_dir = tmp_path / "home"
         home_dir.mkdir()
 
@@ -253,7 +524,29 @@ class TestMain:
     def test_main_insiders_flag(
         self, tmp_path: Path, command: str, flags: list[str], expected_path_part: str
     ) -> None:
-        """Verify main handles --insiders flag for global operations."""
+        """Verifies main handles --insiders flag for global operations.
+
+        Tests VS Code Insiders path construction.
+
+        Business context:
+        Insiders users need separate config from stable VS Code.
+
+        Arrangement:
+        1. Parametrize with long and short flag variants.
+        2. Create insiders config directory.
+        3. Pre-create config for uninstall test.
+
+        Action:
+        Call main() with insiders flag.
+
+        Assertion Strategy:
+        Validates insiders path by confirming:
+        - Return code is 0 (success).
+        - Path contains "Code - Insiders".
+
+        Testing Principle:
+        Validates insiders support, ensuring correct path.
+        """
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         insiders_path = home_dir / ".config" / "Code - Insiders" / "User"
@@ -288,7 +581,95 @@ class TestMain:
         ],
     )
     def test_insiders_requires_global(self, command: str, flags: list[str]) -> None:
-        """Verify --insiders without --global returns error."""
+        """Verifies --insiders without --global returns error.
+
+        Tests flag validation for insiders-only usage.
+
+        Business context:
+        Insiders flag only applies to global installs; workspace has no variant.
+
+        Arrangement:
+        1. Parametrize with install and uninstall using --insiders without --global.
+
+        Action:
+        Call main() with invalid flag combination.
+
+        Assertion Strategy:
+        Validates error by confirming:
+        - Return code is 1 (error).
+
+        Testing Principle:
+        Validates flag constraints, ensuring correct usage.
+        """
         with patch.object(sys, "argv", ["docscope-mcp", command, *flags]):
             result = main()
             assert result == 1
+
+
+class TestCLIAssetsHandling:
+    """Tests for CLI asset handling edge cases.
+
+    Test Categories:
+        1. Assets Not Found - FileNotFoundError handling (1 test)
+        2. Copy Assets Error - Graceful error propagation (1 test)
+
+    Total: 2 tests.
+    """
+
+    def test_get_assets_dir_not_found(self, tmp_path: Path) -> None:
+        """Verifies copy_assets handles FileNotFoundError from get_assets_dir.
+
+        Business context:
+            If package assets directory doesn't exist (corrupted install),
+            copy_assets should return graceful error for troubleshooting.
+
+        Arrangement:
+            1. Mock get_assets_dir to raise FileNotFoundError.
+
+        Action:
+            Call copy_assets with mocked error.
+
+        Assertion Strategy:
+            Verify returns (1, [warning message]).
+
+        Testing Principle:
+            Clear errors enable faster troubleshooting.
+        """
+        from docscope_mcp.cli import copy_assets
+
+        with patch("docscope_mcp.cli.get_assets_dir") as mock_get_assets:
+            mock_get_assets.side_effect = FileNotFoundError(
+                "Assets directory not found: /fake/path"
+            )
+            exit_code, messages = copy_assets()
+            assert exit_code == 1
+            assert any("Assets directory not found" in msg for msg in messages)
+
+    def test_copy_assets_handles_missing_assets(self, tmp_path: Path) -> None:
+        """Verifies copy_assets returns error when assets not found.
+
+        Business context:
+            If assets directory is missing, copy_assets should return
+            graceful error instead of crashing.
+
+        Arrangement:
+            1. Mock get_assets_dir to raise FileNotFoundError.
+
+        Action:
+            Call copy_assets.
+
+        Assertion Strategy:
+            Verify returns (1, [warning message]).
+
+        Testing Principle:
+            Graceful degradation prevents CLI crashes.
+        """
+        from docscope_mcp.cli import copy_assets
+
+        with patch("docscope_mcp.cli.get_assets_dir") as mock_get_assets:
+            mock_get_assets.side_effect = FileNotFoundError("Assets not found: /test/path")
+            exit_code, messages = copy_assets()
+            assert exit_code == 1
+            assert len(messages) == 1
+            assert "Warning:" in messages[0]
+            assert "Assets not found" in messages[0]

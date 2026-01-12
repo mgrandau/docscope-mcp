@@ -383,12 +383,66 @@ class PathSecurityValidator:
 
         # Use adapter methods if provided, otherwise use Path methods
         def is_symlink(p: Path) -> bool:
+            """Check if path is symlink using adapter or stdlib.
+
+            Provides abstraction layer for testing with mock filesystems.
+            Production code uses stdlib, tests can inject mock behavior.
+
+            Args:
+                p: Path to check for symlink status.
+
+            Returns:
+                True if path is a symbolic link, False otherwise.
+
+            Raises:
+                No exceptions raised - delegates to underlying implementation.
+
+            Example:
+                >>> is_symlink(Path('/some/symlink'))
+                True
+            """
             return fs.is_symlink(p) if fs else p.is_symlink()
 
         def readlink(p: Path) -> Path:
+            """Read symlink target using adapter or stdlib.
+
+            Provides abstraction layer for testing with mock filesystems.
+            Returns the path that the symlink points to.
+
+            Args:
+                p: Symbolic link path to read.
+
+            Returns:
+                Path that the symlink points to (may be relative or absolute).
+
+            Raises:
+                OSError: If path is not a symlink or cannot be read.
+
+            Example:
+                >>> readlink(Path('/link/to/file'))
+                Path('/actual/file')
+            """
             return fs.readlink(p) if fs else p.readlink()
 
         def resolve(p: Path) -> Path:
+            """Resolve path to absolute using adapter or stdlib.
+
+            Provides abstraction layer for testing with mock filesystems.
+            Resolves symlinks and normalizes path components.
+
+            Args:
+                p: Path to resolve to absolute form.
+
+            Returns:
+                Absolute path with symlinks resolved and normalized.
+
+            Raises:
+                OSError: If path resolution fails.
+
+            Example:
+                >>> resolve(Path('./relative/path'))
+                Path('/absolute/resolved/path')
+            """
             return fs.resolve(p) if fs else p.resolve()
 
         # Check symlinks in path
@@ -620,31 +674,44 @@ class DefaultFilesystemAdapter:  # pragma: no cover
     def is_symlink(self, path: Path) -> bool:
         """Check if path is a symbolic link.
 
+        Tests whether path points to a symlink for security validation.
+        Used by PathSecurityValidator to detect symlink-based path traversal
+        attacks in MCP tool inputs.
+
         Args:
             path: Path to check.
 
         Returns:
             True if symlink, False otherwise.
 
+        Raises:
+            No exceptions - returns False for non-existent paths.
+
         Example:
-            >>> fs.is_symlink(Path('link'))
+            >>> if fs.is_symlink(Path('link')):
+            ...     target = fs.readlink(Path('link'))
         """
         return path.is_symlink()
 
     def readlink(self, path: Path) -> Path:
-        """Read symlink target.
+        """Read the target of a symbolic link.
+
+        Returns the path that the symlink points to. Used for security
+        validation in PathSecurityValidator to ensure symlink targets
+        stay within workspace boundaries.
 
         Args:
-            path: Symlink to read.
+            path: Symlink path to read.
 
         Returns:
-            Target path.
+            Path that the symlink points to (may be relative or absolute).
 
         Raises:
-            OSError: If not a symlink.
+            OSError: If path is not a symlink or cannot be read.
 
         Example:
-            >>> fs.readlink(Path('link'))
+            >>> target = fs.readlink(Path('link'))
+            >>> print(target)
         """
         return path.readlink()
 

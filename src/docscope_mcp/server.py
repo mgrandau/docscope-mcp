@@ -21,7 +21,12 @@ from enum import Enum
 from typing import Any
 
 from docscope_mcp.__version__ import __version__
-from docscope_mcp.analyzers.python import PythonAnalyzer
+from docscope_mcp.analyzers import (
+    SUPPORTED_LANGUAGES,
+    analyze_code,
+    detect_language,
+    get_supported_extensions,
+)
 from docscope_mcp.models import DEFAULT_CONFIG, AnalysisConfig
 
 # MCP Protocol version
@@ -57,8 +62,8 @@ class DocScopeMCPServer:
     """MCP server for documentation quality analysis.
 
     Provides tools for analyzing documentation quality across multiple
-    programming languages. Currently supports Python with extensibility
-    for additional languages.
+    programming languages. Automatically detects language from file
+    extension. Supports Python, C#, VB.NET, VB6, and C++.
 
     MCP Protocol Implementation:
     - initialize: Establish connection and negotiate capabilities
@@ -67,7 +72,6 @@ class DocScopeMCPServer:
 
     Attributes:
         tools: Registry of available tools with schemas
-        analyzers: Language-specific analyzer instances
         config: Analysis configuration
         logger: Logger instance
     """
@@ -77,11 +81,10 @@ class DocScopeMCPServer:
         config: AnalysisConfig | None = None,
         logger_instance: logging.Logger | None = None,
     ) -> None:
-        """Initialize MCP server with tool registry and analyzers.
+        """Initialize MCP server with tool registry.
 
-        Creates server instance with configured analyzers and tool definitions.
-        Provides dependency injection for testing and customization of
-        analysis behavior in MCP tool responses.
+        Creates server instance with configured tool definitions.
+        Analyzers are created on-demand based on file extension.
 
         Args:
             config: Analysis configuration. Defaults to DEFAULT_CONFIG.
@@ -100,10 +103,8 @@ class DocScopeMCPServer:
         self.config = config or DEFAULT_CONFIG
         self.logger = logger_instance or logger
 
-        # Initialize analyzers
-        self.analyzers = {
-            "python": PythonAnalyzer(config=self.config, logger=self.logger),
-        }
+        # Build supported extensions description
+        ext_list = ", ".join(get_supported_extensions())
 
         # Tool registry
         self.tools = {
@@ -111,7 +112,8 @@ class DocScopeMCPServer:
                 "name": "analyze_functions",
                 "description": (
                     "Analyze source code functions and identify those needing "
-                    "documentation improvement based on quality standards"
+                    "documentation improvement. Language is auto-detected from "
+                    f"file extension. Supported: {ext_list}"
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -122,17 +124,21 @@ class DocScopeMCPServer:
                         },
                         "file_path": {
                             "type": "string",
-                            "description": "Optional file path for context",
-                            "default": "",
+                            "description": (
+                                "File path for language detection (required). "
+                                "Language detected from extension."
+                            ),
                         },
                         "language": {
                             "type": "string",
-                            "description": "Programming language (default: python)",
-                            "default": "python",
-                            "enum": list(self.analyzers.keys()),
+                            "description": (
+                                "Optional language override. If omitted, detected "
+                                "from file_path extension."
+                            ),
+                            "enum": SUPPORTED_LANGUAGES,
                         },
                     },
-                    "required": ["code"],
+                    "required": ["code", "file_path"],
                 },
             },
         }
@@ -219,8 +225,8 @@ class DocScopeMCPServer:
     ) -> dict[str, Any]:
         """Execute analyze_functions MCP tool.
 
-        Validates inputs, runs language analyzer, and formats results.
-        Implements the core MCP tool that provides documentation analysis.
+        Validates inputs, auto-detects language from file extension,
+        runs appropriate analyzer, and formats results.
 
         Args:
             arguments: Tool arguments (code, file_path, language).
@@ -234,7 +240,7 @@ class DocScopeMCPServer:
 
         Example:
             >>> response = await server._execute_analyze_functions(
-            ...     {'code': 'def f(): pass'}, 1
+            ...     {'code': 'def f(): pass', 'file_path': 'test.py'}, 1
             ... )
             >>> 'result' in response
             True
@@ -242,7 +248,7 @@ class DocScopeMCPServer:
         try:
             code = arguments.get("code", "")
             file_path = arguments.get("file_path", "")
-            language = arguments.get("language", "python")
+            language_override = arguments.get("language")  # Optional override
 
             # Validate code parameter
             if not code or not isinstance(code, str):
@@ -252,6 +258,17 @@ class DocScopeMCPServer:
                     "error": {
                         "code": JSONRPCErrorCode.INVALID_PARAMS.value,
                         "message": "'code' is required and must be a string",
+                    },
+                }
+
+            # Validate file_path parameter (required for auto-detection)
+            if not file_path or not isinstance(file_path, str):
+                return {
+                    "jsonrpc": "2.0",
+                    "id": message_id,
+                    "error": {
+                        "code": JSONRPCErrorCode.INVALID_PARAMS.value,
+                        "message": "'file_path' is required for language detection",
                     },
                 }
 
@@ -267,20 +284,27 @@ class DocScopeMCPServer:
                     },
                 }
 
-            # Get analyzer for language
-            analyzer = self.analyzers.get(language)
-            if not analyzer:
-                return {
-                    "jsonrpc": "2.0",
-                    "id": message_id,
-                    "error": {
-                        "code": JSONRPCErrorCode.INVALID_PARAMS.value,
-                        "message": f"Unsupported language: {language}",
-                    },
-                }
+            # Determine language: use override if provided, else detect from path
+            if language_override:
+                language = language_override
+            else:
+                language = detect_language(file_path)
+                if not language:
+                    ext_list = ", ".join(get_supported_extensions())
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": message_id,
+                        "error": {
+                            "code": JSONRPCErrorCode.INVALID_PARAMS.value,
+                            "message": (
+                                f"Cannot detect language from '{file_path}'. "
+                                f"Supported extensions: {ext_list}"
+                            ),
+                        },
+                    }
 
-            # Execute analysis
-            results = analyzer.analyze(code, file_path)
+            # Execute analysis using routing layer
+            results = analyze_code(code, language, file_path, config=self.config)
 
             # Handle errors
             if results and "error" in results[0]:

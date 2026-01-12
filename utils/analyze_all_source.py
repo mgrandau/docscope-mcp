@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Analyze all Python files in the source directory.
+"""Analyze all source files in the source directory.
 
-This utility script runs the DocScope analyzer against every Python file
+This utility script runs the DocScope analyzer against every supported source file
 in the src directory, outputting JSON for use as prompt context.
+
+Supported languages: Python, C#, VB.NET, VB6, C++
 
 Usage:
     python utils/analyze_all_source.py
@@ -12,9 +14,6 @@ Usage:
 Examples:
     # Analyze with custom project root
     main(project_root=Path("/my/project"))
-
-    # Test with mock analyzer
-    main(analyzer=mock_analyzer)
 """
 
 from __future__ import annotations
@@ -24,20 +23,16 @@ import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from docscope_mcp.analyzers.python import PythonAnalyzer
 
 # Patterns to exclude from file discovery
-EXCLUDED_PATTERNS = ("__pycache__", ".pyc")
+EXCLUDED_PATTERNS = ("__pycache__", ".pyc", "node_modules", ".git", "bin", "obj")
 
 
-def find_python_files(target_dir: Path) -> list[Path]:
-    """Find all Python files in the target directory.
+def find_source_files(target_dir: Path, supported_extensions: list[str]) -> list[Path]:
+    """Find all supported source files in the target directory.
 
-    Recursively discovers Python source files while filtering out
-    cache directories and compiled bytecode.
+    Recursively discovers source files while filtering out
+    cache directories and build artifacts.
 
     Business context:
     Enables batch analysis of entire codebases by discovering all
@@ -45,35 +40,37 @@ def find_python_files(target_dir: Path) -> list[Path]:
 
     Args:
         target_dir: Path to the directory to scan. Must exist.
+        supported_extensions: List of file extensions to include (e.g., ['.py', '.cs']).
 
     Returns:
-        List of paths to Python files, sorted alphabetically.
-        Excludes __pycache__ directories and .pyc files.
+        List of paths to source files, sorted alphabetically.
+        Excludes __pycache__, node_modules, .git, bin, obj directories.
 
     Raises:
         OSError: If target_dir is not accessible or doesn't exist.
 
     Examples:
-        >>> files = find_python_files(Path("src"))
-        >>> [f.name for f in files[:2]]
-        ['__init__.py', 'analyzer.py']
+        >>> files = find_source_files(Path("src"), ['.py', '.cs'])
+        >>> [f.suffix for f in files[:2]]
+        ['.py', '.py']
     """
-    python_files = [
-        py_file
-        for py_file in target_dir.rglob("*.py")
-        if not any(pattern in str(py_file) for pattern in EXCLUDED_PATTERNS)
-    ]
-    return sorted(python_files)
+    source_files = []
+    for ext in supported_extensions:
+        pattern = f"*{ext}"
+        for src_file in target_dir.rglob(pattern):
+            if not any(pattern in str(src_file) for pattern in EXCLUDED_PATTERNS):
+                source_files.append(src_file)
+    return sorted(source_files)
 
 
-def analyze_file(
-    analyzer: PythonAnalyzer,
+def analyze_single_file(
     file_path: Path,
     project_root: Path,
+    analyze_func: callable,
 ) -> dict:
-    """Analyze a single Python file and return structured results.
+    """Analyze a single source file and return structured results.
 
-    Reads the file, runs documentation quality analysis, and formats
+    Runs documentation quality analysis using the routing layer and formats
     results for JSON output. Handles errors gracefully by returning
     error information instead of raising.
 
@@ -82,32 +79,58 @@ def analyze_file(
     Results feed into aggregate reports for documentation audits.
 
     Args:
-        analyzer: The PythonAnalyzer instance to use for quality assessment.
-        file_path: Absolute path to the Python file to analyze.
+        file_path: Absolute path to the source file to analyze.
         project_root: Root directory for computing relative paths in output.
+        analyze_func: The analyze_file function from routing module.
 
     Returns:
         Dictionary with keys:
         - file: Relative path from project_root
+        - language: Detected language or 'unknown'
         - functions_needing_improvement: Count of functions with issues
         - functions: List of function analysis dicts
         - error: (optional) Error message if analysis failed
+        - skipped: (optional) True if file type not supported
 
     Raises:
         ValueError: If file_path is not under project_root.
 
     Examples:
-        >>> result = analyze_file(analyzer, Path("src/main.py"), Path("."))
+        >>> result = analyze_single_file(Path("src/main.py"), Path("."), analyze_file)
         >>> result["file"]
         'src/main.py'
-        >>> len(result["functions"]) >= 0
-        True
+        >>> result["language"]
+        'python'
     """
     relative_path = str(file_path.relative_to(project_root))
 
+    # Detect language first from file extension
+    from docscope_mcp.analyzers.routing import detect_language
+
+    language = detect_language(str(file_path)) or "unknown"
+
     try:
-        code = file_path.read_text(encoding="utf-8")
-        results = analyzer.analyze(code, str(file_path))
+        results = analyze_func(str(file_path))
+
+        # Check for unsupported file type error
+        if results and len(results) == 1 and "error" in results[0]:
+            error_msg = results[0]["error"]
+            if "Unsupported file type" in error_msg:
+                return {
+                    "file": relative_path,
+                    "language": "unknown",
+                    "skipped": True,
+                    "reason": error_msg,
+                    "functions_needing_improvement": 0,
+                    "functions": [],
+                }
+            return {
+                "file": relative_path,
+                "language": language,
+                "error": error_msg,
+                "functions_needing_improvement": 0,
+                "functions": [],
+            }
 
         # Clean up results for JSON output
         functions = [
@@ -125,13 +148,15 @@ def analyze_file(
 
         return {
             "file": relative_path,
+            "language": language,
             "functions_needing_improvement": len(functions),
             "functions": functions,
         }
 
-    except (OSError, UnicodeDecodeError, SyntaxError) as e:
+    except (OSError, UnicodeDecodeError) as e:
         return {
             "file": relative_path,
+            "language": "unknown",
             "error": str(e),
             "functions_needing_improvement": 0,
             "functions": [],
@@ -140,16 +165,14 @@ def analyze_file(
 
 def main(
     project_root: Path | None = None,
-    analyzer: PythonAnalyzer | None = None,
 ) -> int:
     """Analyze all source files and output JSON.
 
-    Scans all Python files in src directory and outputs structured
-    JSON for use as context in AI prompts.
+    Scans all supported source files in src directory and outputs structured
+    JSON for use as context in AI prompts. Supports Python, C#, VB.NET, VB6, C++.
 
     Args:
         project_root: Root directory of the project. Defaults to parent of utils/.
-        analyzer: PythonAnalyzer instance to use. Creates default if None.
 
     Returns:
         Exit code: 0 on success, 1 on error.
@@ -170,11 +193,13 @@ def main(
     if src_path not in sys.path:
         sys.path.insert(0, src_path)
 
-    from docscope_mcp.analyzers.python import PythonAnalyzer as Analyzer
-    from docscope_mcp.models import DEFAULT_CONFIG
+    from docscope_mcp.analyzers.routing import (
+        analyze_file,
+        get_supported_extensions,
+    )
 
     parser = argparse.ArgumentParser(
-        description="Analyze documentation quality for all Python files in src"
+        description="Analyze documentation quality for all source files in src"
     )
     parser.add_argument(
         "--output",
@@ -190,36 +215,55 @@ def main(
     )
     args = parser.parse_args()
 
-    python_files = find_python_files(src_dir)
-    if not python_files:
-        print("No Python files found in src directory", file=sys.stderr)
-        return 1
+    # Get supported extensions and find files
+    supported_extensions = get_supported_extensions()
+    source_files = find_source_files(src_dir, supported_extensions)
 
-    if analyzer is None:
-        analyzer = Analyzer(config=DEFAULT_CONFIG)
+    if not source_files:
+        print("No supported source files found in src directory", file=sys.stderr)
+        return 1
 
     # Build JSON report
     report = {
         "report_type": "source_analysis",
         "generated_at": datetime.now(UTC).isoformat(),
         "target_directory": "src",
-        "files_scanned": len(python_files),
+        "supported_extensions": supported_extensions,
+        "files_scanned": len(source_files),
         "summary": {
-            "total_files": len(python_files),
+            "total_files": len(source_files),
             "files_with_issues": 0,
+            "files_skipped": 0,
+            "files_with_errors": 0,
             "total_functions_to_improve": 0,
+            "by_language": {},
         },
         "files": [],
     }
 
-    for py_file in python_files:
-        file_result = analyze_file(analyzer, py_file, project_root)
+    for src_file in source_files:
+        file_result = analyze_single_file(src_file, project_root, analyze_file)
         report["files"].append(file_result)
 
-        func_count = file_result["functions_needing_improvement"]
-        if func_count > 0:
-            report["summary"]["files_with_issues"] += 1
-            report["summary"]["total_functions_to_improve"] += func_count
+        # Update summary
+        language = file_result.get("language", "unknown")
+        if language not in report["summary"]["by_language"]:
+            report["summary"]["by_language"][language] = {
+                "files": 0,
+                "functions_to_improve": 0,
+            }
+        report["summary"]["by_language"][language]["files"] += 1
+
+        if file_result.get("skipped"):
+            report["summary"]["files_skipped"] += 1
+        elif file_result.get("error"):
+            report["summary"]["files_with_errors"] += 1
+        else:
+            func_count = file_result["functions_needing_improvement"]
+            report["summary"]["by_language"][language]["functions_to_improve"] += func_count
+            if func_count > 0:
+                report["summary"]["files_with_issues"] += 1
+                report["summary"]["total_functions_to_improve"] += func_count
 
     # Output JSON
     indent = 2 if args.pretty else None
