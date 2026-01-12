@@ -8,6 +8,7 @@ Language-agnostic models enabling multi-language extensibility.
 from docscope_mcp.models.analysis import (
     ArgInfo,
     FunctionAnalysis,
+    FunctionAnalysisResult,
     FunctionInfo,
 )
 from docscope_mcp.models.config import (
@@ -29,8 +30,9 @@ __all__ = [
     "QualityThresholds",
     # Analysis models
     "ArgInfo",
-    "FunctionInfo",
     "FunctionAnalysis",
+    "FunctionAnalysisResult",
+    "FunctionInfo",
     # Configuration
     "AnalysisConfig",
     "DEFAULT_CONFIG",

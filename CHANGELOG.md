@@ -5,9 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2025-12-11
+## [Unreleased]
 
 ### Added
+
+- `PriorityCalculationMixin` - shared priority scoring logic for all analyzers
+- `QualityAssessmentMixin` - shared quality assessment logic for all analyzers (DRY refactor)
+- `_validate_signature_coverage()` method in `QualityAssessmentMixin` - unified signature validation
+- `FunctionAnalysisResult` TypedDict for type-safe analysis results
+- Quality gap thresholds (`quality_gap_poor`, `quality_gap_basic`, `quality_gap_good`) in `QualityThresholds`
+- `analyzers/README.md` with package documentation and AI task map
+- CLI dependency injection via `FilesystemAdapter` for isolated testing
+- Configuration validation in `AnalysisConfig.__post_init__()` for thresholds and limits
+
+### Changed
+
+- All analyzers now inherit from `QualityAssessmentMixin` and `PriorityCalculationMixin` (eliminates ~800 lines of duplication)
+- `_sort_by_priority()` moved to `PriorityCalculationMixin`
+- Quality scoring logic (`_calculate_indicator_score`, `_determine_quality_level`, `_identify_missing_elements`) moved to `QualityAssessmentMixin`
+- Unified test function detection via `_is_test_function_common()` in `QualityAssessmentMixin`
+- `_validate_signature_coverage()` moved from individual analyzers to `QualityAssessmentMixin`
+- Quality gap scoring now uses configurable thresholds instead of hardcoded values
+- `AnalysisConfig.to_dict()` now includes `thresholds` field
+- CLI functions (`install_mcp`, `uninstall_mcp`, `copy_assets`) now accept optional `fs` and `workspace` parameters
+- CLI tests refactored to use `MockFilesystemAdapter` instead of patching `Path.cwd`
+- VB6Analyzer now uses `config.min_docstring_length` instead of hardcoded value
+
+### Removed
+
+- `_is_test_method()` from CSharpAnalyzer, VBAnalyzer (replaced by mixin's `_is_test_function_common()`)
+- `_is_test_procedure()` from VB6Analyzer (replaced by mixin's `_is_test_function_common()`)
+- `_is_test_function()` from CCppAnalyzer (replaced by mixin's `_is_test_function_common()`)
+- Duplicate `_validate_signature_coverage()` implementations from all analyzers
+
+### Fixed
+
+- `__init__.py` docstring now correctly references `analyze_code` and `analyze_file` tools
+
+## [1.0.0] - 2025-12-11
+
+### Added (1.0.0)
 
 - **MCP Server**: JSON-RPC 2.0 server for documentation quality analysis
 - **Python Analyzer**: AST-based analyzer with multi-criteria quality assessment
@@ -29,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2025-12-01
 
-### Added
+### Added (0.1.0)
 
 - Initial development release
 - Core analyzer functionality

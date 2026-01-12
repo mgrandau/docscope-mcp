@@ -676,14 +676,80 @@ class TestAnalyzeFile:
         Call analyze_file with missing file path.
 
         Assertion Strategy:
-        Validates exception by confirming:
-        - FileNotFoundError is raised.
+        Validates error handling by confirming:
+        - Returns error dict with 'File not found' message.
 
         Testing Principle:
-        Validates fail-fast, ensuring missing files raise immediately.
+        Validates fail-fast, ensuring missing files return error dict.
         """
-        with pytest.raises(FileNotFoundError):
-            analyze_file("/nonexistent/path/file.py")
+        result = analyze_file("/nonexistent/path/file.py")
+        assert len(result) == 1
+        assert "error" in result[0]
+        assert "File not found" in result[0]["error"]
+
+    def test_analyze_file_permission_denied(self, tmp_path: Path) -> None:
+        """Verifies analyze_file handles PermissionError gracefully.
+
+        Tests error handling when file cannot be read due to permissions.
+
+        Business context:
+        Permission errors should return informative error dict, not crash.
+
+        Arrangement:
+        1. Create Python file with restricted permissions.
+
+        Action:
+        Call analyze_file with permission-restricted file.
+
+        Assertion Strategy:
+        Validates error handling by confirming:
+        - Returns error dict with 'Permission denied' message.
+
+        Testing Principle:
+        Validates graceful degradation for filesystem permission errors.
+        """
+        restricted_file = tmp_path / "restricted.py"
+        restricted_file.write_text("def foo(): pass")
+        restricted_file.chmod(0o000)  # Remove all permissions
+
+        try:
+            result = analyze_file(str(restricted_file))
+            assert len(result) == 1
+            assert "error" in result[0]
+            assert "Permission denied" in result[0]["error"]
+        finally:
+            # Restore permissions for cleanup
+            restricted_file.chmod(0o644)
+
+    def test_analyze_file_invalid_utf8(self, tmp_path: Path) -> None:
+        """Verifies analyze_file handles UnicodeDecodeError gracefully.
+
+        Tests error handling when file contains invalid UTF-8 bytes.
+
+        Business context:
+        Binary or corrupted files should return error dict, not crash.
+
+        Arrangement:
+        1. Create Python file with invalid UTF-8 byte sequence.
+
+        Action:
+        Call analyze_file with invalid UTF-8 file.
+
+        Assertion Strategy:
+        Validates error handling by confirming:
+        - Returns error dict with 'not valid UTF-8' message.
+
+        Testing Principle:
+        Validates graceful degradation for encoding errors.
+        """
+        invalid_utf8_file = tmp_path / "invalid.py"
+        # Write invalid UTF-8 bytes (0x80-0xFF are invalid as single bytes)
+        invalid_utf8_file.write_bytes(b"def foo(): pass\n\x80\x81\x82\n")
+
+        result = analyze_file(str(invalid_utf8_file))
+        assert len(result) == 1
+        assert "error" in result[0]
+        assert "not valid UTF-8" in result[0]["error"]
 
     def test_analyze_file_with_config(self, tmp_path: Path) -> None:
         """Verifies analyze_file passes config to analyzer.

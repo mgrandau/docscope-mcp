@@ -194,8 +194,11 @@ class TestAnalysisConfig:
         config = AnalysisConfig()
         config_dict = config.to_dict()
         assert "quality_thresholds" in config_dict
+        assert "thresholds" in config_dict
         assert "max_code_size" in config_dict
         assert config_dict["max_code_size"] == 5 * 1024 * 1024
+        assert isinstance(config_dict["thresholds"], dict)
+        assert "complexity_high" in config_dict["thresholds"]
 
     def test_custom_config(self) -> None:
         """Verifies custom config values override defaults.
@@ -220,3 +223,95 @@ class TestAnalysisConfig:
         )
         assert config.max_code_size == 1024
         assert config.max_results_display == 5
+
+    def test_config_validation_negative_max_code_size(self) -> None:
+        """Verifies AnalysisConfig rejects negative max_code_size.
+
+        Tests validation in __post_init__.
+
+        Business context:
+        Invalid config values must fail fast to prevent runtime errors.
+
+        Arrangement:
+        1. Prepare negative max_code_size value.
+
+        Action:
+        Attempt to create AnalysisConfig with invalid value.
+
+        Assertion Strategy:
+        Validates ValueError raised with descriptive message.
+
+        Testing Principle:
+        Validates defensive programming for configuration boundaries.
+        """
+        with pytest.raises(ValueError, match="max_code_size must be positive"):
+            AnalysisConfig(max_code_size=-1)
+
+    def test_config_validation_zero_max_results(self) -> None:
+        """Verifies AnalysisConfig rejects zero max_results_display.
+
+        Tests validation for zero values.
+
+        Business context:
+        Zero results display would be useless; must be at least 1.
+
+        Arrangement:
+        1. Prepare zero max_results_display value.
+
+        Action:
+        Attempt to create AnalysisConfig with zero value.
+
+        Assertion Strategy:
+        Validates ValueError raised for zero value.
+
+        Testing Principle:
+        Validates positive integer constraint enforcement.
+        """
+        with pytest.raises(ValueError, match="max_results_display must be positive"):
+            AnalysisConfig(max_results_display=0)
+
+    def test_config_validation_quality_threshold_out_of_range(self) -> None:
+        """Verifies AnalysisConfig rejects quality thresholds outside 0-1.
+
+        Tests quality threshold validation.
+
+        Business context:
+        Quality scores are normalized 0-1; thresholds must match.
+
+        Arrangement:
+        1. Prepare quality_thresholds with value > 1.0.
+
+        Action:
+        Attempt to create AnalysisConfig with invalid threshold.
+
+        Assertion Strategy:
+        Validates ValueError raised with threshold name in message.
+
+        Testing Principle:
+        Validates domain constraint enforcement for quality scores.
+        """
+        with pytest.raises(ValueError, match="quality_threshold.*must be between 0.0 and 1.0"):
+            AnalysisConfig(quality_thresholds={"excellent": 1.5})
+
+    def test_config_validation_quality_threshold_negative(self) -> None:
+        """Verifies AnalysisConfig rejects negative quality thresholds.
+
+        Tests lower bound validation.
+
+        Business context:
+        Quality scores cannot be negative.
+
+        Arrangement:
+        1. Prepare quality_thresholds with negative value.
+
+        Action:
+        Attempt to create AnalysisConfig with negative threshold.
+
+        Assertion Strategy:
+        Validates ValueError raised for negative threshold.
+
+        Testing Principle:
+        Validates both bounds of quality threshold range.
+        """
+        with pytest.raises(ValueError, match="quality_threshold.*must be between 0.0 and 1.0"):
+            AnalysisConfig(quality_thresholds={"good": -0.1})

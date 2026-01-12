@@ -4,6 +4,7 @@ Configuration models for DocScope MCP.
 Defines analysis configuration and defaults.
 """
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -51,6 +52,47 @@ class AnalysisConfig:
     docstring_preview_length: int = 300
     max_missing_elements_display: int = 3
 
+    def __post_init__(self) -> None:
+        """Validate configuration values after initialization.
+
+        Ensures all configuration values are within acceptable ranges.
+        Called automatically by dataclass after __init__.
+
+        Args:
+            None - validates instance attributes.
+
+        Returns:
+            None - modifies instance in place if needed.
+
+        Raises:
+            ValueError: If any configuration value is invalid.
+
+        Example:
+            >>> AnalysisConfig(max_code_size=-1)  # Raises ValueError
+        """
+        # Validate quality thresholds are between 0 and 1
+        for name, value in self.quality_thresholds.items():
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"quality_threshold '{name}' must be between 0.0 and 1.0, got {value}"
+                )
+
+        # Validate positive integers
+        positive_int_fields = [
+            ("max_code_size", self.max_code_size),
+            ("max_results_display", self.max_results_display),
+            ("min_docstring_length", self.min_docstring_length),
+            ("max_ast_nodes", self.max_ast_nodes),
+            ("max_ast_depth", self.max_ast_depth),
+            ("ast_parse_timeout", self.ast_parse_timeout),
+            ("max_file_path_length", self.max_file_path_length),
+            ("docstring_preview_length", self.docstring_preview_length),
+            ("max_missing_elements_display", self.max_missing_elements_display),
+        ]
+        for name, value in positive_int_fields:
+            if value <= 0:
+                raise ValueError(f"{name} must be positive, got {value}")
+
     def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary for serialization.
 
@@ -64,7 +106,7 @@ class AnalysisConfig:
 
         Returns:
             Dict with all config fields including quality_thresholds,
-            size limits, AST protection limits, and display settings.
+            thresholds, size limits, AST protection limits, and display settings.
 
         Raises:
             No exceptions - always returns valid dict.
@@ -72,11 +114,12 @@ class AnalysisConfig:
         Example:
             >>> config = AnalysisConfig()
             >>> d = config.to_dict()
-            >>> 'quality_thresholds' in d and 'max_ast_depth' in d
+            >>> 'quality_thresholds' in d and 'thresholds' in d
             True
         """
         return {
             "quality_thresholds": self.quality_thresholds,
+            "thresholds": dataclasses.asdict(self.thresholds),
             "max_code_size": self.max_code_size,
             "max_results_display": self.max_results_display,
             "min_docstring_length": self.min_docstring_length,

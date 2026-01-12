@@ -712,7 +712,7 @@ class TestVB6AnalyzerTestDetection:
             2. Receive procedure name and expected result from parametrization.
 
         Action:
-            Call _is_test_procedure with provided procedure name.
+            Call _is_test_function_common with provided procedure name.
 
         Assertion Strategy:
             Verify detection result matches expected boolean.
@@ -721,7 +721,7 @@ class TestVB6AnalyzerTestDetection:
             Pattern coverage ensures all test naming conventions recognized.
         """
         analyzer = VB6Analyzer()
-        assert analyzer._is_test_procedure(proc_name) is expected
+        assert analyzer._is_test_function_common(proc_name) is expected
 
 
 class TestVB6AnalyzerSecurity:

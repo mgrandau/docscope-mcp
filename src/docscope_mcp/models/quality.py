@@ -54,11 +54,14 @@ class QualityThresholds:
         min_comprehensive_chars_standard_terse: Terse notation threshold
         min_comprehensive_chars_test: Characters for test principles
         min_comprehensive_chars_test_terse: Terse test threshold
-        complexity_medium: Threshold for medium complexity
-        complexity_high: Threshold for high complexity
-        max_param_priority_contribution: Cap on parameter count contribution
-        min_bullet_points: Bullet points for structured list
-        min_paragraph_breaks: Section breaks for structured content
+        complexity_medium: Threshold for medium complexity (default: 5)
+        complexity_high: Threshold for high complexity (default: 10)
+        max_param_priority_contribution: Cap on parameter count contribution (default: 3)
+        quality_gap_poor: Score below which quality gap adds +3 priority (default: 0.3)
+        quality_gap_basic: Score below which quality gap adds +2 priority (default: 0.6)
+        quality_gap_good: Score below which quality gap adds +1 priority (default: 0.8)
+        min_bullet_points: Bullet points for structured list (default: 3)
+        min_paragraph_breaks: Section breaks for structured content (default: 2)
     """
 
     # Brief description thresholds
@@ -71,6 +74,7 @@ class QualityThresholds:
     min_detailed_lines_test: int = 10
     min_detailed_chars_standard: int = 200
     min_detailed_chars_test: int = 300
+    min_detailed_chars_brief: int = 100  # Minimum chars for detailed_description indicator
 
     # Comprehensive documentation thresholds
     min_comprehensive_chars_standard: int = 300
@@ -84,6 +88,11 @@ class QualityThresholds:
 
     # Priority calculation
     max_param_priority_contribution: int = 3
+
+    # Quality gap score thresholds (for priority calculation)
+    quality_gap_poor: float = 0.3
+    quality_gap_basic: float = 0.6
+    quality_gap_good: float = 0.8
 
     # Terse notation detection
     min_bullet_points: int = 3

@@ -29,7 +29,8 @@ QUICK START:
     results = analyzer.analyze(code)  # No file_path parameter
 
 MCP TOOLS:
-1. analyze_functions - Analyze code and identify functions needing documentation
+1. analyze_code - Analyze code string with explicit language specification
+2. analyze_file - Analyze file from disk with auto-detected language
 """
 
 from docscope_mcp.__version__ import (

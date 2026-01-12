@@ -13,8 +13,10 @@ Architecture:
 
 import logging
 import re
-from typing import Any, Literal, cast
+from typing import Any, cast
 
+from docscope_mcp.analyzers.priority import PriorityCalculationMixin
+from docscope_mcp.analyzers.quality import QualityAssessmentMixin
 from docscope_mcp.models import (
     DEFAULT_CONFIG,
     AnalysisConfig,
@@ -22,7 +24,6 @@ from docscope_mcp.models import (
     FunctionInfo,
     QualityAssessment,
     QualityIndicators,
-    QualityLevel,
 )
 
 # Pre-compiled regex patterns for VB.NET parsing
@@ -74,7 +75,7 @@ REGEX_XML_EXAMPLE = re.compile(r"<example>(.*?)</example>", re.DOTALL | re.IGNOR
 REGEX_XML_REMARKS = re.compile(r"<remarks>(.*?)</remarks>", re.DOTALL | re.IGNORECASE)
 
 
-class VBAnalyzer:
+class VBAnalyzer(QualityAssessmentMixin, PriorityCalculationMixin):
     """VB.NET documentation quality analyzer using regex-based parsing.
 
     Analyzes Visual Basic .NET source code to identify methods needing
@@ -213,42 +214,17 @@ class VBAnalyzer:
         """
         min_length = self.config.min_docstring_length
         if not docstring or len(docstring.strip()) < min_length:
-            return {
-                "quality": QualityLevel.POOR.value,
-                "score": 0.0,
-                "missing": ["xml documentation"],
-                "needs_improvement": True,
-                "indicators": {},
-            }
+            return cast(
+                QualityAssessment, self._build_empty_quality_assessment("xml documentation")
+            )
 
-        is_test = self._is_test_method(func_name)
+        is_test = self._is_test_function_common(func_name)
         quality_indicators = self._calculate_quality_indicators(docstring, func_info, is_test)
         quality_indicators = self._validate_signature_coverage(quality_indicators, func_info)
 
-        indicator_values = list(quality_indicators.values())
-        score = (
-            sum(cast(list[bool], indicator_values)) / len(indicator_values)
-            if indicator_values
-            else 0.0
-        )
-
-        missing = [key.replace("_", " ") for key, value in quality_indicators.items() if not value]
-
-        thresholds = self.config.quality_thresholds
-        quality_str: Literal["poor", "basic", "good", "excellent"]
-
-        if score >= thresholds["excellent"]:
-            quality_str = "excellent"
-            needs_improvement = False
-        elif score >= thresholds["good"]:
-            quality_str = "good"
-            needs_improvement = True
-        elif score >= thresholds["basic"]:
-            quality_str = "basic"
-            needs_improvement = True
-        else:
-            quality_str = "poor"
-            needs_improvement = True
+        score = self._calculate_indicator_score(quality_indicators)
+        missing = self._identify_missing_elements(quality_indicators)
+        quality_str, needs_improvement = self._determine_quality_level(score)
 
         return {
             "quality": quality_str,
@@ -287,34 +263,6 @@ class VBAnalyzer:
             + self._calculate_signature_score(func_info)
             + self._calculate_quality_gap_score(quality_assessment)
         )
-
-    # ==================== SECURITY VALIDATION ====================
-
-    def _validate_code_security(self, code: str) -> list[dict[str, Any]] | None:
-        """Validate code for security issues (size limits).
-
-        Enforces code size limits to prevent denial-of-service attacks
-        from maliciously large input files. Part of the security boundary.
-
-        Args:
-            code: Source code string to validate.
-
-        Returns:
-            Error dict list if validation fails, None if valid.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> result = analyzer._validate_code_security('x' * 10_000_000)
-            >>> result[0]['error']
-            'Code too large (max 5120KB)'
-        """
-        if len(code) > self.config.max_code_size:
-            max_kb = self.config.max_code_size // 1024
-            return [{"error": f"Code too large (max {max_kb}KB)"}]
-
-        return None
 
     # ==================== METHOD EXTRACTION ====================
 
@@ -380,9 +328,11 @@ class VBAnalyzer:
             No exceptions raised.
 
         Example:
-            >>> # match = REGEX_FUNCTION.search('Public Sub Test()\nEnd Sub')
-            >>> # info = analyzer._extract_method_info(match, code)
-            >>> # info['name'] == 'Test'
+            >>> code = 'Public Sub Test()\nEnd Sub'
+            >>> match = REGEX_FUNCTION.search(code)
+            >>> info = analyzer._extract_method_info(match, code)
+            >>> info['name']
+            'Test'
         """
         name = match.group("name")
         modifiers = match.group("modifiers") or ""
@@ -417,7 +367,7 @@ class VBAnalyzer:
             "line": line,
             "complexity": complexity,
             "is_private": is_private,
-            "is_test": self._is_test_method(name),
+            "is_test": self._is_test_function_common(name),
             "args": args,
             "returns": return_type.strip() if return_type else None,
             "decorators": [],
@@ -441,8 +391,11 @@ class VBAnalyzer:
             No exceptions raised.
 
         Example:
-            >>> # complexity = analyzer._estimate_complexity(match, code)
-            >>> # complexity >= 1
+            >>> code = 'Public Sub Test()\nIf x Then\nEnd If\nEnd Sub'
+            >>> match = REGEX_FUNCTION.search(code)
+            >>> complexity = analyzer._estimate_complexity(match, code)
+            >>> complexity >= 1
+            True
         """
         start = match.end()
         method_body = ""
@@ -497,54 +450,6 @@ class VBAnalyzer:
             cleaned.append(line)
         return "\n".join(cleaned)
 
-    def _is_test_method(self, method_name: str) -> bool:
-        """Detect test methods by naming pattern.
-
-        Identifies test methods to apply relaxed documentation requirements.
-        Test methods may skip some quality checks that apply to production code.
-
-        Args:
-            method_name: Name of method to check.
-
-        Returns:
-            True if method appears to be a test method.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> analyzer._is_test_method('TestUserLogin')
-            True
-        """
-        name_lower = method_name.lower()
-        return (
-            name_lower.startswith("test")
-            or name_lower.endswith("test")
-            or method_name.startswith("Test_")
-        )
-
-    def _sort_by_priority(self, functions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Sort results by priority descending.
-
-        Orders functions so highest-priority improvements appear first.
-        Enables users to focus on most impactful documentation updates.
-
-        Args:
-            functions: List of function analysis dicts.
-
-        Returns:
-            Sorted list with highest priority first.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> sorted_funcs = analyzer._sort_by_priority([{'priority': 1}, {'priority': 5}])
-            >>> sorted_funcs[0]['priority']
-            5
-        """
-        return sorted(functions, key=lambda x: x["priority"], reverse=True)
-
     # ==================== QUALITY INDICATORS ====================
 
     def _calculate_quality_indicators(
@@ -590,156 +495,8 @@ class VBAnalyzer:
                 ]
             )
 
-            indicators["implementation_details"] = len(docstring) > 200
+            indicators["implementation_details"] = (
+                len(docstring) > self.config.thresholds.min_detailed_chars_standard
+            )
 
         return cast(QualityIndicators, indicators)
-
-    def _validate_signature_coverage(
-        self, quality_indicators: QualityIndicators, func_info: FunctionInfo
-    ) -> QualityIndicators:
-        """Validate param/returns sections against method signature.
-
-        Ensures documentation matches actual method signature. Methods with
-        parameters need param docs; methods with returns need returns docs.
-
-        Args:
-            quality_indicators: Current quality indicator values.
-            func_info: Function metadata with args and return type.
-
-        Returns:
-            Updated QualityIndicators with signature validation applied.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> # indicators = analyzer._validate_signature_coverage(indicators, func_info)
-            >>> # indicators['args_section'] == True/False based on signature
-        """
-        has_params = len(func_info.get("args", [])) > 0
-
-        if has_params and not quality_indicators.get("args_section", True):
-            quality_indicators["args_section"] = False
-
-        has_return = func_info.get("returns") is not None
-        if has_return and not quality_indicators.get("returns_section", True):
-            quality_indicators["returns_section"] = False
-
-        return quality_indicators
-
-    # ==================== PRIORITY CALCULATION ====================
-
-    def _calculate_visibility_score(self, func_info: FunctionInfo) -> int:
-        """Calculate priority contribution from visibility.
-
-        Public methods get higher priority since they define the API surface.
-        Private methods are implementation details with lower priority.
-
-        Args:
-            func_info: Function metadata with is_private flag.
-
-        Returns:
-            0 for private, 3 for public methods.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> func = {'is_private': False, 'name': 'Foo', 'line': 1,
-            ...         'complexity': 1, 'is_test': False, 'args': [],
-            ...         'returns': None, 'decorators': [], 'current_docstring': ''}
-            >>> analyzer._calculate_visibility_score(func)
-            3
-        """
-        return 0 if func_info["is_private"] else 3
-
-    def _calculate_complexity_score(self, func_info: FunctionInfo) -> int:
-        """Calculate priority contribution from complexity.
-
-        More complex methods need better documentation to aid understanding.
-        Uses cyclomatic complexity thresholds to assign priority.
-
-        Args:
-            func_info: Function metadata with complexity score.
-
-        Returns:
-            0-2 based on complexity thresholds.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> func = {'complexity': 15, 'name': 'Foo', 'line': 1,
-            ...         'is_private': False, 'is_test': False, 'args': [],
-            ...         'returns': None, 'decorators': [], 'current_docstring': ''}
-            >>> analyzer._calculate_complexity_score(func)
-            2
-        """
-        complexity = func_info["complexity"]
-        if complexity > 10:
-            return 2
-        elif complexity > 5:
-            return 1
-        return 0
-
-    def _calculate_signature_score(self, func_info: FunctionInfo) -> int:
-        """Calculate priority contribution from signature complexity.
-
-        Methods with more parameters and return values need documentation
-        to explain their interface. Each parameter adds to priority.
-
-        Args:
-            func_info: Function metadata with args and returns.
-
-        Returns:
-            0-5+ based on parameter count and return presence.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> func = {'args': [{'name': 'a', 'type_annotation': None,
-            ...                   'default': None}], 'returns': 'Integer',
-            ...         'name': 'Foo', 'line': 1, 'complexity': 1,
-            ...         'is_private': False, 'is_test': False, 'decorators': [],
-            ...         'current_docstring': ''}
-            >>> analyzer._calculate_signature_score(func)
-            3
-        """
-        score = 0
-        param_count = len(func_info["args"])
-        if param_count > 0:
-            score += min(param_count, 3)
-        if func_info["returns"]:
-            score += 2
-        return score
-
-    def _calculate_quality_gap_score(self, quality_assessment: QualityAssessment) -> int:
-        """Calculate priority contribution from documentation quality gap.
-
-        Methods with poor documentation get higher priority to maximize
-        improvement impact. Uses quality score thresholds.
-
-        Args:
-            quality_assessment: Quality assessment with score.
-
-        Returns:
-            0-3 based on quality score thresholds.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> qa = {'score': 0.2, 'quality': 'poor', 'missing': [],
-            ...       'needs_improvement': True, 'indicators': {}}
-            >>> analyzer._calculate_quality_gap_score(qa)
-            3
-        """
-        quality_score = quality_assessment["score"]
-        if quality_score < 0.3:
-            return 3
-        elif quality_score < 0.6:
-            return 2
-        elif quality_score < 0.8:
-            return 1
-        return 0

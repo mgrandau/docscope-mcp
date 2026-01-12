@@ -52,7 +52,7 @@ def test_server_available() -> None:
     Tests MCP server initialization.
 
     Business context:
-    Server must register analyze_functions tool for VS Code integration.
+    Server must register analyze_code and analyze_file tools for VS Code integration.
 
     Arrangement:
     1. Import DocScopeMCPServer from package.
@@ -61,7 +61,8 @@ def test_server_available() -> None:
     Create server and check tools dict.
 
     Assertion Strategy:
-    Validates 'analyze_functions' in server.tools.
+    Validates 'analyze_code' and 'analyze_file' in server.tools.
     """
     server = DocScopeMCPServer()
-    assert "analyze_functions" in server.tools
+    assert "analyze_code" in server.tools
+    assert "analyze_file" in server.tools

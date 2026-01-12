@@ -17,6 +17,8 @@ import re
 import signal
 from typing import Any, Literal, cast
 
+from docscope_mcp.analyzers.priority import PriorityCalculationMixin
+from docscope_mcp.analyzers.quality import QualityAssessmentMixin
 from docscope_mcp.models import (
     DEFAULT_CONFIG,
     AnalysisConfig,
@@ -28,11 +30,10 @@ from docscope_mcp.models import (
 )
 
 # Pre-compiled regex patterns for performance
-REGEX_TEST_CAMELCASE = re.compile(r"test_[A-Z]")
 REGEX_BRIEF_DESCRIPTION = re.compile(r"^\s*[A-Z][^.]*\.$")
 
 
-class PythonAnalyzer:
+class PythonAnalyzer(QualityAssessmentMixin, PriorityCalculationMixin):
     """Python documentation quality analyzer using AST parsing.
 
     Analyzes Python source code to identify functions needing documentation
@@ -297,34 +298,6 @@ class PythonAnalyzer:
         )
 
     # ==================== SECURITY VALIDATION ====================
-
-    def _validate_code_security(self, code: str) -> list[dict[str, Any]] | None:
-        """Validate code for security issues.
-
-        Pre-analysis security check preventing DoS attacks via oversized
-        code. Part of the defense-in-depth security model.
-
-        Args:
-            code: Source code string to validate.
-
-        Returns:
-            None if validation passes.
-            List with error dict if validation fails.
-
-        Raises:
-            No exceptions - errors returned as list.
-
-        Example:
-            >>> error = analyzer._validate_code_security('x = 1', 'file.py')
-            >>> error is None
-            True
-        """
-        # Validate code size
-        if len(code) > self.config.max_code_size:
-            max_kb = self.config.max_code_size // 1024
-            return [{"error": f"Code too large (max {max_kb}KB)"}]
-
-        return None
 
     def _validate_file_path(self, file_path: str) -> None:
         """Validate file_path parameter for security issues.
@@ -637,29 +610,6 @@ class PythonAnalyzer:
                 complexity += 1
 
         return complexity
-
-    def _sort_by_priority(self, functions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Sort function results by priority descending.
-
-        Orders analysis results so highest priority (most urgent)
-        functions appear first. Provides actionable ordering for
-        MCP tool output.
-
-        Args:
-            functions: List of function analysis dicts.
-
-        Returns:
-            Same list sorted by priority (highest first).
-
-        Raises:
-            KeyError: If function dict missing 'priority' key.
-
-        Example:
-            >>> sorted_funcs = analyzer._sort_by_priority(results)
-            >>> sorted_funcs[0]['priority'] >= sorted_funcs[-1]['priority']
-            True
-        """
-        return sorted(functions, key=lambda x: x["priority"], reverse=True)
 
     # ==================== TEST DETECTION ====================
 
@@ -1130,117 +1080,3 @@ class PythonAnalyzer:
             quality_indicators["returns_section"] = False
 
         return quality_indicators
-
-    # ==================== PRIORITY CALCULATION ====================
-
-    def _calculate_visibility_score(self, func_info: FunctionInfo) -> int:
-        """Calculate priority contribution from function visibility.
-
-        Public functions score higher since they're part of the API
-        and need better documentation for users.
-
-        Args:
-            func_info: Function metadata with is_private flag.
-
-        Returns:
-            0 for private functions, 3 for public functions.
-
-        Raises:
-            KeyError: If func_info missing 'is_private' key.
-
-        Example:
-            >>> analyzer._calculate_visibility_score({'is_private': False})
-            3
-        """
-        return 0 if func_info["is_private"] else 3
-
-    def _calculate_complexity_score(self, func_info: FunctionInfo) -> int:
-        """Calculate priority contribution from function complexity.
-
-        Complex functions need better documentation to explain logic.
-        Higher complexity = higher priority for documentation.
-
-        Args:
-            func_info: Function metadata with complexity score.
-
-        Returns:
-            0-2 based on complexity thresholds.
-
-        Raises:
-            KeyError: If func_info missing 'complexity' key.
-
-        Example:
-            >>> analyzer._calculate_complexity_score({'complexity': 10})
-            2
-        """
-        complexity = func_info["complexity"]
-        thresholds = self.config.thresholds
-
-        if complexity > thresholds.complexity_high:
-            return 2
-        elif complexity > thresholds.complexity_medium:
-            return 1
-        return 0
-
-    def _calculate_signature_score(self, func_info: FunctionInfo) -> int:
-        """Calculate priority contribution from signature complexity.
-
-        Functions with more parameters or return values need better
-        documentation to explain their interface.
-
-        Args:
-            func_info: Function metadata with args and returns.
-
-        Returns:
-            0-5+ based on parameter count and return presence.
-
-        Raises:
-            KeyError: If func_info missing 'args' or 'returns' keys.
-
-        Example:
-            >>> func_info = {'args': [{'name': 'x'}], 'returns': 'str'}
-            >>> analyzer._calculate_signature_score(func_info)
-            3
-        """
-        score = 0
-        thresholds = self.config.thresholds
-
-        # Parameters contribution (capped)
-        param_count = len([arg for arg in func_info["args"] if arg["name"] != "self"])
-        if param_count > 0:
-            score += min(param_count, thresholds.max_param_priority_contribution)
-
-        # Return value contribution
-        if func_info["returns"] and func_info["returns"] != "None":
-            score += 2
-
-        return score
-
-    def _calculate_quality_gap_score(self, quality_assessment: QualityAssessment) -> int:
-        """Calculate priority contribution from documentation quality gap.
-
-        Lower quality = higher priority for improvement. Ensures poorly
-        documented functions appear first in MCP tool results.
-
-        Args:
-            quality_assessment: Quality assessment with score.
-
-        Returns:
-            0-3 based on quality score thresholds.
-
-        Raises:
-            KeyError: If quality_assessment missing 'score' key.
-
-        Example:
-            >>> analyzer._calculate_quality_gap_score({'score': 0.2})
-            3
-        """
-        quality_score = quality_assessment["score"]
-
-        if quality_score < 0.3:
-            return 3
-        elif quality_score < 0.6:
-            return 2
-        elif quality_score < 0.8:
-            return 1
-        return 0

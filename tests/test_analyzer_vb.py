@@ -538,7 +538,7 @@ class TestVBAnalyzerTestDetection:
             2. Receive method name and expected result from parametrization.
 
         Action:
-            Call _is_test_method with provided method name.
+            Call _is_test_function_common with provided method name.
 
         Assertion Strategy:
             Verify detection result matches expected boolean.
@@ -547,7 +547,7 @@ class TestVBAnalyzerTestDetection:
             Pattern coverage ensures all test naming conventions recognized.
         """
         analyzer = VBAnalyzer()
-        assert analyzer._is_test_method(method_name) is expected
+        assert analyzer._is_test_function_common(method_name) is expected
 
 
 class TestVBAnalyzerSecurity:

@@ -3,14 +3,16 @@ Base analyzer protocol for documentation analysis.
 
 Defines the interface that all language-specific analyzers must implement.
 Uses Protocol for structural typing (duck typing with type safety).
+Abstract methods enforce implementation in subclasses.
 """
 
 from abc import abstractmethod
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from docscope_mcp.models import FunctionInfo, QualityAssessment
 
 
+@runtime_checkable
 class BaseAnalyzer(Protocol):
     """Protocol defining documentation analyzer interface.
 

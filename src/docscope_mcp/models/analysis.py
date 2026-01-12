@@ -5,7 +5,7 @@ Defines function metadata and analysis results.
 These models are language-agnostic where possible.
 """
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from docscope_mcp.models.quality import QualityAssessment
 
@@ -78,3 +78,28 @@ class FunctionAnalysis(TypedDict):
     current_docstring: str
     quality_assessment: QualityAssessment
     priority: int
+
+
+class FunctionAnalysisResult(TypedDict):
+    """Result dict returned by analyzer.analyze() for each function.
+
+    Standard result schema used across all language analyzers.
+    Enables type-safe handling of analysis results in MCP tools.
+
+    Attributes:
+        function_name: Name of the function/method
+        line_number: Line number where function is defined (1-indexed)
+        current_docstring: Existing docstring/documentation text
+        quality_assessment: Quality evaluation with score and missing elements
+        function_info: Full function metadata (args, returns, complexity)
+        priority: Priority score (0-13+, higher = more urgent)
+        file_path: Optional source file path (added by routing layer)
+    """
+
+    function_name: str
+    line_number: int
+    current_docstring: str
+    quality_assessment: QualityAssessment
+    function_info: FunctionInfo
+    priority: int
+    file_path: NotRequired[str]

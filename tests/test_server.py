@@ -3,6 +3,7 @@
 import pytest
 
 from docscope_mcp.server import DocScopeMCPServer, JSONRPCErrorCode
+from tests.mock_filesystem import MockFilesystemAdapter
 
 
 class TestDocScopeMCPServer:
@@ -11,11 +12,11 @@ class TestDocScopeMCPServer:
     Categories:
     1. Initialization - Server creation, tool registration (1 test)
     2. Protocol Handling - Initialize, tools/list (2 tests)
-    3. Tool Execution - analyze_functions tool (1 test)
+    3. Tool Execution - analyze_code and analyze_file tools (2 tests)
     4. Error Handling - Unknown methods, tools, params (1 test)
     5. Language Support - Unsupported language error (1 test)
 
-    Total: 6 tests.
+    Total: 7 tests.
     """
 
     def test_server_creation(self) -> None:
@@ -24,7 +25,7 @@ class TestDocScopeMCPServer:
         Tests server construction and tool registration.
 
         Business context:
-        Server must have analyze_functions tool registered at startup.
+        Server must have analyze_code and analyze_file tools registered.
 
         Arrangement:
         1. No setup needed - tests constructor.
@@ -34,16 +35,17 @@ class TestDocScopeMCPServer:
 
         Assertion Strategy:
         Validates registration by confirming:
-        - "analyze_functions" in tools dict.
-        - Tool schema includes file_path parameter.
+        - "analyze_code" in tools dict with language param.
+        - "analyze_file" in tools dict with file_path param.
 
         Testing Principle:
         Validates initialization, ensuring tools registered.
         """
         server = DocScopeMCPServer()
-        assert "analyze_functions" in server.tools
-        # Analyzers are now created on-demand via routing, not pre-instantiated
-        assert "file_path" in str(server.tools["analyze_functions"]["inputSchema"])
+        assert "analyze_code" in server.tools
+        assert "analyze_file" in server.tools
+        assert "language" in str(server.tools["analyze_code"]["inputSchema"])
+        assert "file_path" in str(server.tools["analyze_file"]["inputSchema"])
 
     @pytest.mark.asyncio
     async def test_handle_initialize(self) -> None:
@@ -103,7 +105,7 @@ class TestDocScopeMCPServer:
         Validates response by confirming:
         - JSON-RPC version is "2.0".
         - Result contains tools array.
-        - "analyze_functions" in tool names.
+        - Both "analyze_code" and "analyze_file" in tool names.
 
         Testing Principle:
         Validates discovery, ensuring tools enumerable.
@@ -114,23 +116,24 @@ class TestDocScopeMCPServer:
         assert response["jsonrpc"] == "2.0"
         assert "result" in response
         tool_names = [t["name"] for t in response["result"]["tools"]]
-        assert "analyze_functions" in tool_names
+        assert "analyze_code" in tool_names
+        assert "analyze_file" in tool_names
 
     @pytest.mark.asyncio
-    async def test_handle_tools_call_analyze(self) -> None:
-        """Verifies analyze_functions tool executes and returns content.
+    async def test_handle_tools_call_analyze_code(self) -> None:
+        """Verifies analyze_code tool executes and returns content.
 
-        Tests end-to-end tool invocation.
+        Tests end-to-end tool invocation with code and language.
 
         Business context:
         Primary server function is analyzing code via tool call.
 
         Arrangement:
         1. Create server instance.
-        2. Construct tools/call message with code and file_path.
+        2. Construct tools/call message with code and language.
 
         Action:
-        Call handle_message with analyze_functions request.
+        Call handle_message with analyze_code request.
 
         Assertion Strategy:
         Validates execution by confirming:
@@ -146,8 +149,51 @@ class TestDocScopeMCPServer:
             "id": 3,
             "method": "tools/call",
             "params": {
-                "name": "analyze_functions",
-                "arguments": {"code": "def example(): pass", "file_path": "test.py"},
+                "name": "analyze_code",
+                "arguments": {"code": "def example(): pass", "language": "python"},
+            },
+        }
+        response = await server.handle_message(message)
+        assert "result" in response
+        assert "content" in response["result"]
+
+    @pytest.mark.asyncio
+    async def test_handle_tools_call_analyze_file(self) -> None:
+        """Verifies analyze_file tool reads file and returns content.
+
+        Tests file reading and analysis via tool call.
+
+        Business context:
+        analyze_file provides convenience for analyzing files on disk.
+
+        Arrangement:
+        1. Create mock filesystem with Python file.
+        2. Create server with mock filesystem.
+        3. Construct tools/call message with file_path.
+
+        Action:
+        Call handle_message with analyze_file request.
+
+        Assertion Strategy:
+        Validates execution by confirming:
+        - Result key present in response.
+        - Content key present in result.
+
+        Testing Principle:
+        Validates file reading, ensuring tool reads and analyzes.
+        """
+        from pathlib import Path
+
+        mock_fs = MockFilesystemAdapter()
+        mock_fs.files[Path("test.py")] = "def example(): pass"
+        server = DocScopeMCPServer(filesystem=mock_fs)
+        message = {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "analyze_file",
+                "arguments": {"file_path": "test.py"},
             },
         }
         response = await server.handle_message(message)
@@ -166,7 +212,7 @@ class TestDocScopeMCPServer:
             ),
             (
                 "tools/call",
-                {"name": "analyze_functions", "arguments": {}},
+                {"name": "analyze_code", "arguments": {}},
                 JSONRPCErrorCode.INVALID_PARAMS,
             ),
         ],
@@ -209,22 +255,22 @@ class TestDocScopeMCPServer:
     async def test_handle_unsupported_language(self) -> None:
         """Verifies unsupported language returns descriptive error.
 
-        Tests error message for unknown file extensions.
+        Tests error message for unknown language parameter.
 
         Business context:
         Clear error messages help users identify supported languages.
 
         Arrangement:
         1. Create server instance.
-        2. Construct request with .rs (Rust) file extension.
+        2. Construct request with unsupported language.
 
         Action:
-        Call handle_message with unsupported file type.
+        Call handle_message with unsupported language.
 
         Assertion Strategy:
         Validates message by confirming:
         - Error key present in response.
-        - Message mentions language detection failure.
+        - Message mentions unsupported language.
 
         Testing Principle:
         Validates error messaging, ensuring helpful diagnostics.
@@ -235,16 +281,16 @@ class TestDocScopeMCPServer:
             "id": 7,
             "method": "tools/call",
             "params": {
-                "name": "analyze_functions",
+                "name": "analyze_code",
                 "arguments": {
                     "code": "fn main() {}",
-                    "file_path": "main.rs",  # Unknown extension
+                    "language": "rust",  # Unsupported
                 },
             },
         }
         response = await server.handle_message(message)
         assert "error" in response
-        assert "cannot detect language" in response["error"]["message"].lower()
+        assert "unsupported language" in response["error"]["message"].lower()
 
 
 class TestResultFormatting:
@@ -454,8 +500,8 @@ class TestServerAnalysisEdgeCases:
             "id": 1,
             "method": "tools/call",
             "params": {
-                "name": "analyze_functions",
-                "arguments": {"code": large_code, "file_path": "test.py"},
+                "name": "analyze_code",
+                "arguments": {"code": large_code, "language": "python"},
             },
         }
         response = await server.handle_message(message)
@@ -492,8 +538,8 @@ class TestServerAnalysisEdgeCases:
             "id": 1,
             "method": "tools/call",
             "params": {
-                "name": "analyze_functions",
-                "arguments": {"code": "def broken(", "file_path": "test.py"},
+                "name": "analyze_code",
+                "arguments": {"code": "def broken(", "language": "python"},
             },
         }
         response = await server.handle_message(message)
@@ -538,8 +584,8 @@ class TestServerAnalysisEdgeCases:
                 "id": 1,
                 "method": "tools/call",
                 "params": {
-                    "name": "analyze_functions",
-                    "arguments": {"code": "def f(): pass", "file_path": "test.py"},
+                    "name": "analyze_code",
+                    "arguments": {"code": "def f(): pass", "language": "python"},
                 },
             }
             response = await server.handle_message(message)
@@ -548,46 +594,131 @@ class TestServerAnalysisEdgeCases:
         assert "Unexpected failure" in response["error"]["message"]
 
 
-class TestServerValidationEdgeCases:
-    """Tests for server parameter validation edge cases.
+class TestAnalyzeCodeValidation:
+    """Tests for analyze_code parameter validation.
 
     Test Categories:
-        1. File Path Validation - Missing/invalid file_path (2 tests)
-        2. Language Detection - Unsupported extension error (1 test)
+        1. Missing Parameters - code, language (2 tests)
+        2. Invalid Types - non-string code, non-string language (2 tests)
+        3. Invalid Language - unsupported language value (1 test)
 
-    Total: 3 tests.
+    Total: 5 tests.
     """
 
     @pytest.mark.asyncio
-    async def test_missing_file_path_returns_error(self) -> None:
-        """Verifies missing file_path parameter returns INVALID_PARAMS error.
-
-        Business context:
-            file_path is required for language auto-detection;
-            missing it must return clear validation error.
-
-        Arrangement:
-            1. Create server instance.
-            2. Construct request without file_path parameter.
-
-        Action:
-            Call handle_message with missing file_path.
-
-        Assertion Strategy:
-            Verify INVALID_PARAMS error with descriptive message.
-
-        Testing Principle:
-            Parameter validation enables better error messages.
-        """
+    async def test_missing_code_returns_error(self) -> None:
+        """Verifies missing code parameter returns INVALID_PARAMS error."""
         server = DocScopeMCPServer()
         message = {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
             "params": {
-                "name": "analyze_functions",
+                "name": "analyze_code",
+                "arguments": {"language": "python"},
+            },
+        }
+        response = await server.handle_message(message)
+        assert "error" in response
+        assert response["error"]["code"] == JSONRPCErrorCode.INVALID_PARAMS.value
+        assert "code" in response["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_missing_language_returns_error(self) -> None:
+        """Verifies missing language parameter returns INVALID_PARAMS error."""
+        server = DocScopeMCPServer()
+        message = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "analyze_code",
                 "arguments": {"code": "def f(): pass"},
-                # file_path intentionally omitted
+            },
+        }
+        response = await server.handle_message(message)
+        assert "error" in response
+        assert response["error"]["code"] == JSONRPCErrorCode.INVALID_PARAMS.value
+        assert "language" in response["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_code_type_returns_error(self) -> None:
+        """Verifies non-string code returns INVALID_PARAMS error."""
+        server = DocScopeMCPServer()
+        message = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "analyze_code",
+                "arguments": {"code": 123, "language": "python"},
+            },
+        }
+        response = await server.handle_message(message)
+        assert "error" in response
+        assert response["error"]["code"] == JSONRPCErrorCode.INVALID_PARAMS.value
+        assert "code" in response["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_language_type_returns_error(self) -> None:
+        """Verifies non-string language returns INVALID_PARAMS error."""
+        server = DocScopeMCPServer()
+        message = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "analyze_code",
+                "arguments": {"code": "def f(): pass", "language": 123},
+            },
+        }
+        response = await server.handle_message(message)
+        assert "error" in response
+        assert response["error"]["code"] == JSONRPCErrorCode.INVALID_PARAMS.value
+        assert "language" in response["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_unsupported_language_returns_error(self) -> None:
+        """Verifies unsupported language value returns INVALID_PARAMS error."""
+        server = DocScopeMCPServer()
+        message = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "analyze_code",
+                "arguments": {"code": "fn main() {}", "language": "rust"},
+            },
+        }
+        response = await server.handle_message(message)
+        assert "error" in response
+        assert response["error"]["code"] == JSONRPCErrorCode.INVALID_PARAMS.value
+        assert "Unsupported language" in response["error"]["message"]
+
+
+class TestAnalyzeFileValidation:
+    """Tests for analyze_file parameter validation.
+
+    Test Categories:
+        1. Missing Parameters - file_path (1 test)
+        2. Invalid Types - non-string file_path (1 test)
+        3. File Errors - not found, permission denied, invalid encoding (3 tests)
+        4. Unsupported Extension - unknown file type (1 test)
+
+    Total: 6 tests.
+    """
+
+    @pytest.mark.asyncio
+    async def test_missing_file_path_returns_error(self) -> None:
+        """Verifies missing file_path returns INVALID_PARAMS error."""
+        server = DocScopeMCPServer()
+        message = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "analyze_file",
+                "arguments": {},
             },
         }
         response = await server.handle_message(message)
@@ -597,33 +728,15 @@ class TestServerValidationEdgeCases:
 
     @pytest.mark.asyncio
     async def test_invalid_file_path_type_returns_error(self) -> None:
-        """Verifies non-string file_path returns INVALID_PARAMS error.
-
-        Business context:
-            file_path must be string for path operations;
-            invalid types must be rejected with clear error.
-
-        Arrangement:
-            1. Create server instance.
-            2. Construct request with non-string file_path.
-
-        Action:
-            Call handle_message with invalid file_path type.
-
-        Assertion Strategy:
-            Verify INVALID_PARAMS error with descriptive message.
-
-        Testing Principle:
-            Type validation prevents downstream errors.
-        """
+        """Verifies non-string file_path returns INVALID_PARAMS error."""
         server = DocScopeMCPServer()
         message = {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
             "params": {
-                "name": "analyze_functions",
-                "arguments": {"code": "def f(): pass", "file_path": 123},
+                "name": "analyze_file",
+                "arguments": {"file_path": 123},
             },
         }
         response = await server.handle_message(message)
@@ -632,39 +745,114 @@ class TestServerValidationEdgeCases:
         assert "file_path" in response["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_unsupported_extension_returns_error(self) -> None:
-        """Verifies unsupported file extension returns INVALID_PARAMS error.
-
-        Business context:
-            Files with unsupported extensions cannot be analyzed;
-            error should list supported extensions for guidance.
-
-        Arrangement:
-            1. Create server instance.
-            2. Construct request with unsupported file extension.
-
-        Action:
-            Call handle_message with .txt file.
-
-        Assertion Strategy:
-            Verify INVALID_PARAMS error mentioning supported extensions.
-
-        Testing Principle:
-            Actionable errors help users fix issues.
-        """
-        server = DocScopeMCPServer()
+    async def test_file_not_found_returns_error(self) -> None:
+        """Verifies missing file returns INVALID_PARAMS error."""
+        mock_fs = MockFilesystemAdapter()
+        server = DocScopeMCPServer(filesystem=mock_fs)
         message = {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
             "params": {
-                "name": "analyze_functions",
-                "arguments": {"code": "some text", "file_path": "readme.txt"},
+                "name": "analyze_file",
+                "arguments": {"file_path": "nonexistent.py"},
+            },
+        }
+        response = await server.handle_message(message)
+        assert "error" in response
+        assert response["error"]["code"] == JSONRPCErrorCode.INVALID_PARAMS.value
+        assert "not found" in response["error"]["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_unsupported_extension_returns_error(self) -> None:
+        """Verifies unsupported file extension returns INVALID_PARAMS error."""
+        from pathlib import Path
+
+        mock_fs = MockFilesystemAdapter()
+        mock_fs.files[Path("readme.txt")] = "some text"
+        server = DocScopeMCPServer(filesystem=mock_fs)
+        message = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "analyze_file",
+                "arguments": {"file_path": "readme.txt"},
             },
         }
         response = await server.handle_message(message)
         assert "error" in response
         assert response["error"]["code"] == JSONRPCErrorCode.INVALID_PARAMS.value
         assert "Cannot detect language" in response["error"]["message"]
-        # Should mention supported extensions
-        assert ".py" in response["error"]["message"] or "Supported" in response["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_file_too_large_returns_error(self) -> None:
+        """Verifies file exceeding max size returns error."""
+        from pathlib import Path
+
+        from docscope_mcp.models import AnalysisConfig
+
+        mock_fs = MockFilesystemAdapter()
+        mock_fs.files[Path("large.py")] = "x = 1\n" * 100
+        config = AnalysisConfig(max_code_size=100)
+        server = DocScopeMCPServer(config=config, filesystem=mock_fs)
+        message = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "analyze_file",
+                "arguments": {"file_path": "large.py"},
+            },
+        }
+        response = await server.handle_message(message)
+        assert "error" in response
+        assert "too large" in response["error"]["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_permission_denied_returns_error(self) -> None:
+        """Verifies permission denied returns INVALID_PARAMS error."""
+        from pathlib import Path
+        from unittest.mock import Mock
+
+        mock_fs = MockFilesystemAdapter()
+        mock_fs.files[Path("secret.py")] = "def secret(): pass"
+        mock_fs.read_text = Mock(side_effect=PermissionError("denied"))
+        server = DocScopeMCPServer(filesystem=mock_fs)
+        message = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "analyze_file",
+                "arguments": {"file_path": "secret.py"},
+            },
+        }
+        response = await server.handle_message(message)
+        assert "error" in response
+        assert response["error"]["code"] == JSONRPCErrorCode.INVALID_PARAMS.value
+        assert "Permission denied" in response["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_encoding_returns_error(self) -> None:
+        """Verifies invalid UTF-8 file returns INVALID_PARAMS error."""
+        from pathlib import Path
+        from unittest.mock import Mock
+
+        mock_fs = MockFilesystemAdapter()
+        mock_fs.files[Path("binary.py")] = "..."
+        mock_fs.read_text = Mock(side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, ""))
+        server = DocScopeMCPServer(filesystem=mock_fs)
+        message = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "analyze_file",
+                "arguments": {"file_path": "binary.py"},
+            },
+        }
+        response = await server.handle_message(message)
+        assert "error" in response
+        assert response["error"]["code"] == JSONRPCErrorCode.INVALID_PARAMS.value
+        assert "UTF-8" in response["error"]["message"]

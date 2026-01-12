@@ -9,6 +9,7 @@ import pytest
 
 from docscope_mcp.cli import (
     WINDOWS_PLATFORM,
+    copy_assets,
     get_mcp_server_config,
     get_venv_python,
     get_vscode_mcp_path,
@@ -16,6 +17,7 @@ from docscope_mcp.cli import (
     main,
     uninstall_mcp,
 )
+from tests.mock_filesystem import MockFilesystemAdapter
 
 
 class TestGetVenvPython:
@@ -194,7 +196,7 @@ class TestGetVscodeMcpPath:
         2. Note insiders flag ignored for workspace installs.
 
         Action:
-        Call get_vscode_mcp_path with flag combinations.
+        Call get_vscode_mcp_path with flag combinations and explicit workspace.
 
         Assertion Strategy:
         Validates path by confirming:
@@ -203,10 +205,11 @@ class TestGetVscodeMcpPath:
         Testing Principle:
         Validates path logic, ensuring correct locations.
         """
-        with patch("docscope_mcp.cli.Path.cwd", return_value=tmp_path):
-            result = get_vscode_mcp_path(global_install=global_install, insiders=insiders)
-            for part in expected_parts:
-                assert part in str(result)
+        result = get_vscode_mcp_path(
+            global_install=global_install, insiders=insiders, workspace=tmp_path
+        )
+        for part in expected_parts:
+            assert part in str(result)
 
 
 class TestInstallMcp:
@@ -229,28 +232,35 @@ class TestInstallMcp:
         First-time users need config created automatically.
 
         Arrangement:
-        1. Use empty temporary directory (no .vscode).
+        1. Use MockFilesystemAdapter with empty state.
+        2. Mock get_assets_dir to return empty temp path (no assets to copy).
 
         Action:
-        Call install_mcp with workspace install.
+        Call install_mcp with workspace and mock filesystem.
 
         Assertion Strategy:
         Validates creation by confirming:
         - Return code is 0 (success).
-        - mcp.json file exists.
+        - mcp.json exists in mock filesystem.
         - Config contains "docscope-mcp" server.
 
         Testing Principle:
-        Validates initialization, ensuring clean install works.
+        Validates initialization using pure DI, no Path mocking.
         """
-        with patch("docscope_mcp.cli.Path.cwd", return_value=tmp_path):
-            result = install_mcp(global_install=False)
+        fs = MockFilesystemAdapter()
+        # Create empty assets dir to skip asset copying
+        assets_path = tmp_path / "assets"
+        assets_path.mkdir()
 
-            assert result == 0
-            mcp_path = tmp_path / ".vscode" / "mcp.json"
-            assert mcp_path.exists()
-            config = json.loads(mcp_path.read_text())
-            assert "docscope-mcp" in config["servers"]
+        with patch("docscope_mcp.cli.get_assets_dir", return_value=assets_path):
+            result = install_mcp(global_install=False, workspace=tmp_path, fs=fs)
+
+        assert result == 0
+        mcp_path = tmp_path / ".vscode" / "mcp.json"
+        assert fs.exists(mcp_path)
+        config = fs.read_json(mcp_path)
+        assert isinstance(config, dict)
+        assert "docscope-mcp" in config["servers"]
 
     @pytest.mark.parametrize(
         ("initial_config", "expected_servers"),
@@ -272,7 +282,8 @@ class TestInstallMcp:
 
         Arrangement:
         1. Parametrize with existing servers and missing servers key.
-        2. Create mcp.json with initial config.
+        2. Pre-populate mock filesystem with mcp.json.
+        3. Mock get_assets_dir to return empty temp path.
 
         Action:
         Call install_mcp on existing config.
@@ -283,20 +294,24 @@ class TestInstallMcp:
         - All expected servers present in config.
 
         Testing Principle:
-        Validates non-destructive update, ensuring safe merge.
+        Validates non-destructive update using mock filesystem.
         """
-        vscode_dir = tmp_path / ".vscode"
-        vscode_dir.mkdir()
-        mcp_path = vscode_dir / "mcp.json"
-        mcp_path.write_text(json.dumps(initial_config))
+        fs = MockFilesystemAdapter()
+        mcp_path = tmp_path / ".vscode" / "mcp.json"
+        fs.write_json(mcp_path, initial_config)
 
-        with patch("docscope_mcp.cli.Path.cwd", return_value=tmp_path):
-            result = install_mcp(global_install=False)
+        # Create empty assets dir to skip asset copying
+        assets_path = tmp_path / "assets"
+        assets_path.mkdir()
 
-            assert result == 0
-            config = json.loads(mcp_path.read_text())
-            for server in expected_servers:
-                assert server in config["servers"]
+        with patch("docscope_mcp.cli.get_assets_dir", return_value=assets_path):
+            result = install_mcp(global_install=False, workspace=tmp_path, fs=fs)
+
+        assert result == 0
+        config = fs.read_json(mcp_path)
+        assert isinstance(config, dict)
+        for server in expected_servers:
+            assert server in config["servers"]
 
     def test_install_handles_invalid_json(self, tmp_path: Path) -> None:
         """Verifies install fails gracefully on invalid JSON.
@@ -307,7 +322,7 @@ class TestInstallMcp:
         Corrupted configs must fail with clear error, not corrupt further.
 
         Arrangement:
-        1. Create mcp.json with invalid JSON content.
+        1. Pre-populate mock filesystem with invalid JSON.
 
         Action:
         Call install_mcp on corrupted config.
@@ -317,15 +332,14 @@ class TestInstallMcp:
         - Return code is 1 (failure).
 
         Testing Principle:
-        Validates error recovery, ensuring safe failure.
+        Validates error recovery using mock filesystem.
         """
-        vscode_dir = tmp_path / ".vscode"
-        vscode_dir.mkdir()
-        (vscode_dir / "mcp.json").write_text("{ invalid json }")
+        fs = MockFilesystemAdapter()
+        mcp_path = tmp_path / ".vscode" / "mcp.json"
+        fs.files[mcp_path] = "{ invalid json }"
 
-        with patch("docscope_mcp.cli.Path.cwd", return_value=tmp_path):
-            result = install_mcp(global_install=False)
-            assert result == 1
+        result = install_mcp(global_install=False, workspace=tmp_path, fs=fs)
+        assert result == 1
 
 
 class TestUninstallMcp:
@@ -347,7 +361,7 @@ class TestUninstallMcp:
         Uninstall must remove only docscope-mcp, keeping other servers.
 
         Arrangement:
-        1. Create mcp.json with docscope-mcp and other-server.
+        1. Pre-populate mock filesystem with mcp.json containing servers.
 
         Action:
         Call uninstall_mcp.
@@ -359,20 +373,19 @@ class TestUninstallMcp:
         - "other-server" still present.
 
         Testing Principle:
-        Validates surgical removal, ensuring no collateral damage.
+        Validates surgical removal using mock filesystem.
         """
-        vscode_dir = tmp_path / ".vscode"
-        vscode_dir.mkdir()
-        mcp_path = vscode_dir / "mcp.json"
-        mcp_path.write_text(json.dumps({"servers": {"docscope-mcp": {}, "other-server": {}}}))
+        fs = MockFilesystemAdapter()
+        mcp_path = tmp_path / ".vscode" / "mcp.json"
+        fs.write_json(mcp_path, {"servers": {"docscope-mcp": {}, "other-server": {}}})
 
-        with patch("docscope_mcp.cli.Path.cwd", return_value=tmp_path):
-            result = uninstall_mcp(global_install=False)
+        result = uninstall_mcp(global_install=False, workspace=tmp_path, fs=fs)
 
-            assert result == 0
-            config = json.loads(mcp_path.read_text())
-            assert "docscope-mcp" not in config["servers"]
-            assert "other-server" in config["servers"]
+        assert result == 0
+        config = fs.read_json(mcp_path)
+        assert isinstance(config, dict)
+        assert "docscope-mcp" not in config["servers"]
+        assert "other-server" in config["servers"]
 
     @pytest.mark.parametrize(
         ("setup", "expected_code"),
@@ -393,7 +406,7 @@ class TestUninstallMcp:
 
         Arrangement:
         1. Parametrize with no config, no server, and invalid JSON scenarios.
-        2. Setup each scenario with appropriate file state.
+        2. Setup each scenario with appropriate mock filesystem state.
 
         Action:
         Call uninstall_mcp for each scenario.
@@ -405,21 +418,19 @@ class TestUninstallMcp:
         - Invalid JSON returns 1 (error).
 
         Testing Principle:
-        Validates idempotence, ensuring safe repeated calls.
+        Validates idempotence using mock filesystem.
         """
-        vscode_dir = tmp_path / ".vscode"
+        fs = MockFilesystemAdapter()
+        mcp_path = tmp_path / ".vscode" / "mcp.json"
 
         if setup == "no_server":
-            vscode_dir.mkdir()
-            (vscode_dir / "mcp.json").write_text(json.dumps({"servers": {"other-server": {}}}))
+            fs.write_json(mcp_path, {"servers": {"other-server": {}}})
         elif setup == "invalid_json":
-            vscode_dir.mkdir()
-            (vscode_dir / "mcp.json").write_text("{ invalid json }")
-        # "no_config" - do nothing, dir doesn't exist
+            fs.files[mcp_path] = "{ invalid json }"
+        # "no_config" - do nothing, file doesn't exist in mock
 
-        with patch("docscope_mcp.cli.Path.cwd", return_value=tmp_path):
-            result = uninstall_mcp(global_install=False)
-            assert result == expected_code
+        result = uninstall_mcp(global_install=False, workspace=tmp_path, fs=fs)
+        assert result == expected_code
 
 
 class TestMain:
@@ -606,6 +617,159 @@ class TestMain:
             assert result == 1
 
 
+class TestPlatformPaths:
+    """Tests for platform-specific path handling.
+
+    Test Categories:
+        1. Windows Path - APPDATA path construction (1 test)
+        2. macOS Path - Library/Application Support path (1 test)
+
+    Total: 2 tests.
+    """
+
+    def test_windows_global_path(self, tmp_path: Path) -> None:
+        """Verifies Windows uses APPDATA for global config path.
+
+        Business context:
+            Windows stores VS Code config in %APPDATA%/Code/User/.
+
+        Arrangement:
+            1. Mock sys.platform as win32.
+            2. Set APPDATA environment variable.
+
+        Action:
+            Call get_vscode_mcp_path with global_install=True.
+
+        Assertion Strategy:
+            Verify path contains APPDATA location.
+
+        Testing Principle:
+            Cross-platform support requires testing all platforms.
+        """
+        appdata_path = tmp_path / "AppData" / "Roaming"
+        appdata_path.mkdir(parents=True)
+
+        with (
+            patch("docscope_mcp.cli.sys.platform", WINDOWS_PLATFORM),
+            patch.dict("os.environ", {"APPDATA": str(appdata_path)}),
+        ):
+            result = get_vscode_mcp_path(global_install=True, workspace=tmp_path)
+            assert "Code" in str(result)
+            assert str(appdata_path) in str(result)
+
+    def test_macos_global_path(self, tmp_path: Path) -> None:
+        """Verifies macOS uses Library/Application Support for global config.
+
+        Business context:
+            macOS stores VS Code config in ~/Library/Application Support/Code/User/.
+
+        Arrangement:
+            1. Mock sys.platform as darwin.
+            2. Mock Path.home to return temp path.
+
+        Action:
+            Call get_vscode_mcp_path with global_install=True.
+
+        Assertion Strategy:
+            Verify path contains Library/Application Support.
+
+        Testing Principle:
+            Cross-platform support requires testing all platforms.
+        """
+        with (
+            patch("docscope_mcp.cli.sys.platform", "darwin"),
+            patch("docscope_mcp.cli.Path.home", return_value=tmp_path),
+        ):
+            result = get_vscode_mcp_path(global_install=True, workspace=tmp_path)
+            assert "Library" in str(result)
+            assert "Application Support" in str(result)
+            assert "Code" in str(result)
+
+
+class TestInstallNonDictJson:
+    """Tests for install handling non-dict JSON in mcp.json.
+
+    Test Categories:
+        1. Non-Dict JSON - Array or primitive JSON handling (1 test)
+
+    Total: 1 test.
+    """
+
+    def test_install_handles_non_dict_json(self, tmp_path: Path) -> None:
+        """Verifies install replaces non-dict JSON with proper config.
+
+        Business context:
+            If mcp.json contains array or primitive, install should
+            create proper config structure.
+
+        Arrangement:
+            1. Pre-populate mock filesystem with JSON array.
+
+        Action:
+            Call install_mcp.
+
+        Assertion Strategy:
+            Verify returns 0 and creates proper servers dict.
+
+        Testing Principle:
+            Graceful recovery from malformed config.
+        """
+        fs = MockFilesystemAdapter()
+        mcp_path = tmp_path / ".vscode" / "mcp.json"
+        # Write a valid JSON array (not a dict)
+        fs.files[mcp_path] = '["not", "a", "dict"]'
+
+        # Create empty assets dir to skip asset copying
+        assets_path = tmp_path / "assets"
+        assets_path.mkdir()
+
+        with patch("docscope_mcp.cli.get_assets_dir", return_value=assets_path):
+            result = install_mcp(global_install=False, workspace=tmp_path, fs=fs)
+
+        assert result == 0
+        config = fs.read_json(mcp_path)
+        assert isinstance(config, dict)
+        assert "servers" in config
+        assert "docscope-mcp" in config["servers"]
+
+
+class TestUninstallNonDictJson:
+    """Tests for uninstall handling non-dict JSON in mcp.json.
+
+    Test Categories:
+        1. Non-Dict JSON - Array or primitive JSON handling (1 test)
+
+    Total: 1 test.
+    """
+
+    def test_uninstall_handles_non_dict_json(self, tmp_path: Path) -> None:
+        """Verifies uninstall handles non-dict JSON gracefully.
+
+        Business context:
+            If mcp.json contains array or primitive, uninstall should
+            treat it as if docscope-mcp doesn't exist.
+
+        Arrangement:
+            1. Pre-populate mock filesystem with JSON array.
+
+        Action:
+            Call uninstall_mcp.
+
+        Assertion Strategy:
+            Verify returns 0 (nothing to uninstall).
+
+        Testing Principle:
+            Graceful handling of unexpected data.
+        """
+        fs = MockFilesystemAdapter()
+        mcp_path = tmp_path / ".vscode" / "mcp.json"
+        # Write a valid JSON array (not a dict)
+        fs.files[mcp_path] = '["not", "a", "dict"]'
+
+        result = uninstall_mcp(global_install=False, workspace=tmp_path, fs=fs)
+        assert result == 0
+
+
 class TestCLIAssetsHandling:
     """Tests for CLI asset handling edge cases.
 
@@ -635,13 +799,13 @@ class TestCLIAssetsHandling:
         Testing Principle:
             Clear errors enable faster troubleshooting.
         """
-        from docscope_mcp.cli import copy_assets
+        fs = MockFilesystemAdapter()
 
         with patch("docscope_mcp.cli.get_assets_dir") as mock_get_assets:
             mock_get_assets.side_effect = FileNotFoundError(
                 "Assets directory not found: /fake/path"
             )
-            exit_code, messages = copy_assets()
+            exit_code, messages = copy_assets(workspace=tmp_path, fs=fs)
             assert exit_code == 1
             assert any("Assets directory not found" in msg for msg in messages)
 
@@ -664,11 +828,11 @@ class TestCLIAssetsHandling:
         Testing Principle:
             Graceful degradation prevents CLI crashes.
         """
-        from docscope_mcp.cli import copy_assets
+        fs = MockFilesystemAdapter()
 
         with patch("docscope_mcp.cli.get_assets_dir") as mock_get_assets:
             mock_get_assets.side_effect = FileNotFoundError("Assets not found: /test/path")
-            exit_code, messages = copy_assets()
+            exit_code, messages = copy_assets(workspace=tmp_path, fs=fs)
             assert exit_code == 1
             assert len(messages) == 1
             assert "Warning:" in messages[0]

@@ -6,7 +6,7 @@ and routing to the appropriate analyzer instance.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from docscope_mcp.analyzers.c_cpp import CCppAnalyzer
 from docscope_mcp.analyzers.csharp import CSharpAnalyzer
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from docscope_mcp.models import AnalysisConfig
 
 # File extension to language mapping
-EXTENSION_MAP: dict[str, str] = {
+EXTENSION_MAP: Final[dict[str, str]] = {
     # Python
     ".py": "python",
     ".pyi": "python",
@@ -47,7 +47,7 @@ EXTENSION_MAP: dict[str, str] = {
 
 # Language to analyzer class mapping
 # Note: Each analyzer class accepts (config: AnalysisConfig | None = None)
-ANALYZER_MAP: dict[str, type[Any]] = {
+ANALYZER_MAP: Final[dict[str, type[Any]]] = {
     "python": PythonAnalyzer,
     "csharp": CSharpAnalyzer,
     "vb": VBAnalyzer,
@@ -56,7 +56,7 @@ ANALYZER_MAP: dict[str, type[Any]] = {
 }
 
 # Supported languages list
-SUPPORTED_LANGUAGES = list(ANALYZER_MAP.keys())
+SUPPORTED_LANGUAGES: Final[list[str]] = list(ANALYZER_MAP.keys())
 
 
 def detect_language(file_path: str) -> str | None:
@@ -239,8 +239,7 @@ def analyze_file(
         or error dict if file cannot be read or language not supported.
 
     Raises:
-        FileNotFoundError: If file does not exist.
-        PermissionError: If file cannot be read.
+        No exceptions raised - errors returned in result list.
 
     Examples:
         >>> results = analyze_file('src/main.py')
@@ -259,7 +258,14 @@ def analyze_file(
         return [{"error": f"Unsupported file type: {path.suffix}"}]
 
     # Read file content
-    code = path.read_text(encoding="utf-8")
+    try:
+        code = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return [{"error": f"File not found: {file_path}"}]
+    except PermissionError:
+        return [{"error": f"Permission denied: {file_path}"}]
+    except UnicodeDecodeError:
+        return [{"error": f"File is not valid UTF-8: {file_path}"}]
 
     # Get analyzer and run
     analyzer = get_analyzer(language, config)

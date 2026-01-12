@@ -15,7 +15,9 @@ Supported languages:
 from docscope_mcp.analyzers.base import BaseAnalyzer
 from docscope_mcp.analyzers.c_cpp import CCppAnalyzer
 from docscope_mcp.analyzers.csharp import CSharpAnalyzer
+from docscope_mcp.analyzers.priority import PriorityCalculationMixin
 from docscope_mcp.analyzers.python import PythonAnalyzer
+from docscope_mcp.analyzers.quality import QualityAssessmentMixin
 from docscope_mcp.analyzers.routing import (
     EXTENSION_MAP,
     SUPPORTED_LANGUAGES,
@@ -36,7 +38,9 @@ __all__ = [
     "BaseAnalyzer",
     "CCppAnalyzer",
     "CSharpAnalyzer",
+    "PriorityCalculationMixin",
     "PythonAnalyzer",
+    "QualityAssessmentMixin",
     "VB6Analyzer",
     "VBAnalyzer",
     # Routing utilities

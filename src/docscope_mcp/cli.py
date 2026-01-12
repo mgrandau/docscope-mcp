@@ -5,15 +5,20 @@ Provides installation and management commands for the DocScope MCP server.
 Commands:
     install: Configure MCP server in VS Code workspace or globally
     uninstall: Remove MCP server configuration
+
+Uses FilesystemAdapter for dependency injection, enabling isolated testing
+without mocking Path operations.
 """
 
 import argparse
 import json
-import shutil
+import os
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 from docscope_mcp.__version__ import __version__
+from docscope_mcp.filesystem import DefaultFilesystemAdapter, FilesystemAdapter
 
 # Platform constant for cross-platform detection
 WINDOWS_PLATFORM = "win32"
@@ -97,7 +102,11 @@ def get_mcp_server_config() -> dict[str, object]:
     }
 
 
-def get_vscode_mcp_path(global_install: bool = False, insiders: bool = False) -> Path:
+def get_vscode_mcp_path(
+    global_install: bool = False,
+    insiders: bool = False,
+    workspace: Path | None = None,
+) -> Path:
     """Get the path to the MCP configuration file.
 
     Provides the appropriate mcp.json location based on installation
@@ -109,6 +118,7 @@ def get_vscode_mcp_path(global_install: bool = False, insiders: bool = False) ->
                        If False, return workspace .vscode/mcp.json path.
         insiders: If True (with global_install), use Code - Insiders path.
                  Ignored for workspace installs.
+        workspace: Workspace directory for path calculation. Defaults to cwd.
 
     Returns:
         Path to the mcp.json configuration file.
@@ -122,14 +132,27 @@ def get_vscode_mcp_path(global_install: bool = False, insiders: bool = False) ->
         >>> get_vscode_mcp_path(global_install=True, insiders=True)
         PosixPath('/home/user/.config/Code - Insiders/User/mcp.json')
     """
+    if workspace is None:
+        workspace = Path.cwd()
+
     if global_install:
-        # User-level VS Code settings
+        # User-level VS Code settings - platform-specific paths
         home = Path.home()
         code_dir = "Code - Insiders" if insiders else "Code"
-        return home / ".config" / code_dir / "User" / "mcp.json"
+
+        if sys.platform == WINDOWS_PLATFORM:
+            # Windows: %APPDATA%/Code/User/mcp.json
+            appdata = Path(os.environ.get("APPDATA", home / "AppData" / "Roaming"))
+            return appdata / code_dir / "User" / "mcp.json"
+        elif sys.platform == "darwin":
+            # macOS: ~/Library/Application Support/Code/User/mcp.json
+            return home / "Library" / "Application Support" / code_dir / "User" / "mcp.json"
+        else:
+            # Linux: ~/.config/Code/User/mcp.json
+            return home / ".config" / code_dir / "User" / "mcp.json"
     else:
         # Workspace-level config
-        return Path.cwd() / ".vscode" / "mcp.json"
+        return workspace / ".vscode" / "mcp.json"
 
 
 def get_assets_dir() -> Path:
@@ -161,18 +184,23 @@ def get_assets_dir() -> Path:
     return assets_dir
 
 
-def copy_assets() -> tuple[int, list[str]]:
-    """Copy bundled prompts and utils to current workspace.
+def copy_assets(
+    workspace: Path | None = None,
+    fs: FilesystemAdapter | None = None,
+) -> tuple[int, list[str]]:
+    """Copy bundled prompts and utils to workspace.
 
     Copies prompt templates to .github/prompts/ and utility scripts
-    to utils/ in the current working directory. Skips files that
-    already exist to preserve user customizations.
+    to utils/ in the workspace directory. Skips files that already
+    exist to preserve user customizations.
 
     Provides AI-friendly analysis prompts (analyze_source.prompt.md,
     analyze_tests.prompt.md) and utility scripts for batch operations.
 
     Args:
-        None - uses current working directory as destination.
+        workspace: Target workspace directory. Defaults to cwd.
+        fs: FilesystemAdapter for file operations. Defaults to
+            DefaultFilesystemAdapter for production use.
 
     Returns:
         Tuple of (exit_code, list of copied file descriptions).
@@ -187,41 +215,49 @@ def copy_assets() -> tuple[int, list[str]]:
         >>> if copied:
         ...     print(f'Copied {len(copied)} files')
     """
+    if fs is None:
+        fs = DefaultFilesystemAdapter()
+    if workspace is None:
+        workspace = Path.cwd()
+
     copied: list[str] = []
     try:
         assets_dir = get_assets_dir()
     except FileNotFoundError as e:
         return 1, [f"Warning: {e}"]
 
-    workspace = Path.cwd()
-
     # Copy prompts to .github/prompts/
     prompts_src = assets_dir / "prompts"
     prompts_dst = workspace / ".github" / "prompts"
     if prompts_src.exists():
-        prompts_dst.mkdir(parents=True, exist_ok=True)
+        fs.mkdir(prompts_dst)
         for src_file in prompts_src.glob("*.md"):
             dst_file = prompts_dst / src_file.name
-            if not dst_file.exists():
-                shutil.copy2(src_file, dst_file)
+            if not fs.exists(dst_file):
+                fs.copy_file(src_file, dst_file)
                 copied.append(f"  .github/prompts/{src_file.name}")
 
     # Copy utils to utils/
     utils_src = assets_dir / "utils"
     utils_dst = workspace / "utils"
     if utils_src.exists():
-        utils_dst.mkdir(parents=True, exist_ok=True)
-        for src_file in utils_src.iterdir():
+        fs.mkdir(utils_dst)
+        for src_file in utils_src.glob("*"):
             if src_file.is_file():
                 dst_file = utils_dst / src_file.name
-                if not dst_file.exists():
-                    shutil.copy2(src_file, dst_file)
+                if not fs.exists(dst_file):
+                    fs.copy_file(src_file, dst_file)
                     copied.append(f"  utils/{src_file.name}")
 
     return 0, copied
 
 
-def install_mcp(global_install: bool = False, insiders: bool = False) -> int:
+def install_mcp(
+    global_install: bool = False,
+    insiders: bool = False,
+    workspace: Path | None = None,
+    fs: FilesystemAdapter | None = None,
+) -> int:
     """Install MCP server configuration to VS Code.
 
     Creates or updates the mcp.json file with DocScope server config.
@@ -231,6 +267,9 @@ def install_mcp(global_install: bool = False, insiders: bool = False) -> int:
     Args:
         global_install: Install to user-level config instead of workspace.
         insiders: Use VS Code Insiders path (only with global_install).
+        workspace: Workspace directory for config path. Defaults to cwd.
+        fs: FilesystemAdapter for file operations. Defaults to
+            DefaultFilesystemAdapter for production use.
 
     Returns:
         Exit code: 0 for success, 1 for failure.
@@ -242,7 +281,12 @@ def install_mcp(global_install: bool = False, insiders: bool = False) -> int:
         >>> install_mcp(global_install=False)
         0
     """
-    mcp_path = get_vscode_mcp_path(global_install, insiders)
+    if fs is None:
+        fs = DefaultFilesystemAdapter()
+    if workspace is None:
+        workspace = Path.cwd()
+
+    mcp_path = get_vscode_mcp_path(global_install, insiders, workspace)
     if global_install:
         variant = "Insiders" if insiders else "stable"
         location = f"global ({variant})"
@@ -250,13 +294,17 @@ def install_mcp(global_install: bool = False, insiders: bool = False) -> int:
         location = "workspace"
 
     # Ensure directory exists
-    mcp_path.parent.mkdir(parents=True, exist_ok=True)
+    fs.mkdir(mcp_path.parent)
 
     # Load existing config or create new
-    if mcp_path.exists():
+    config: dict[str, Any]
+    if fs.exists(mcp_path):
         try:
-            with open(mcp_path) as f:
-                config = json.load(f)
+            raw_config = fs.read_json(mcp_path)
+            if isinstance(raw_config, dict):
+                config = cast(dict[str, Any], raw_config)
+            else:
+                config = {"servers": {}}
         except json.JSONDecodeError:
             print(f"Error: Invalid JSON in {mcp_path}", file=sys.stderr)
             return 1
@@ -271,16 +319,14 @@ def install_mcp(global_install: bool = False, insiders: bool = False) -> int:
     config["servers"]["docscope-mcp"] = get_mcp_server_config()
 
     # Write config
-    with open(mcp_path, "w") as f:
-        json.dump(config, f, indent=2)
-        f.write("\n")
+    fs.write_json(mcp_path, config)
 
     print(f"✓ DocScope MCP server installed ({location})")
     print(f"  Config: {mcp_path}")
 
     # Copy assets for workspace installs only
     if not global_install:
-        exit_code, copied = copy_assets()
+        exit_code, copied = copy_assets(workspace=workspace, fs=fs)
         if copied:
             print()
             print("Assets copied:")
@@ -292,7 +338,12 @@ def install_mcp(global_install: bool = False, insiders: bool = False) -> int:
     return 0
 
 
-def uninstall_mcp(global_install: bool = False, insiders: bool = False) -> int:
+def uninstall_mcp(
+    global_install: bool = False,
+    insiders: bool = False,
+    workspace: Path | None = None,
+    fs: FilesystemAdapter | None = None,
+) -> int:
     """Remove MCP server configuration from VS Code.
 
     Removes the DocScope server entry from mcp.json while preserving
@@ -302,6 +353,9 @@ def uninstall_mcp(global_install: bool = False, insiders: bool = False) -> int:
     Args:
         global_install: Remove from user-level config instead of workspace.
         insiders: Use VS Code Insiders path (only with global_install).
+        workspace: Workspace directory for config path. Defaults to cwd.
+        fs: FilesystemAdapter for file operations. Defaults to
+            DefaultFilesystemAdapter for production use.
 
     Returns:
         Exit code: 0 for success, 1 for failure.
@@ -313,20 +367,26 @@ def uninstall_mcp(global_install: bool = False, insiders: bool = False) -> int:
         >>> uninstall_mcp(global_install=False)
         0
     """
-    mcp_path = get_vscode_mcp_path(global_install, insiders)
+    if fs is None:
+        fs = DefaultFilesystemAdapter()
+    if workspace is None:
+        workspace = Path.cwd()
+
+    mcp_path = get_vscode_mcp_path(global_install, insiders, workspace)
     if global_install:
         variant = "Insiders" if insiders else "stable"
         location = f"global ({variant})"
     else:
         location = "workspace"
 
-    if not mcp_path.exists():
+    if not fs.exists(mcp_path):
         print(f"No MCP config found at {mcp_path}")
         return 0
 
+    config: dict[str, Any]
     try:
-        with open(mcp_path) as f:
-            config = json.load(f)
+        raw_config = fs.read_json(mcp_path)
+        config = cast(dict[str, Any], raw_config) if isinstance(raw_config, dict) else {}  # noqa: SIM108
     except json.JSONDecodeError:
         print(f"Error: Invalid JSON in {mcp_path}", file=sys.stderr)
         return 1
@@ -336,9 +396,7 @@ def uninstall_mcp(global_install: bool = False, insiders: bool = False) -> int:
         del config["servers"]["docscope-mcp"]
 
         # Write updated config
-        with open(mcp_path, "w") as f:
-            json.dump(config, f, indent=2)
-            f.write("\n")
+        fs.write_json(mcp_path, config)
 
         print(f"✓ DocScope MCP server removed ({location})")
     else:

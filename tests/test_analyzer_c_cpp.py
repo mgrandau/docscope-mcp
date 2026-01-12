@@ -688,7 +688,7 @@ class TestCCppAnalyzerTestDetection:
             2. Receive function name and expected result from parametrization.
 
         Action:
-            Call _is_test_function with provided function name.
+            Call _is_test_function_common with provided function name.
 
         Assertion Strategy:
             Verify detection result matches expected boolean.
@@ -697,7 +697,7 @@ class TestCCppAnalyzerTestDetection:
             Pattern coverage ensures all test naming conventions recognized.
         """
         analyzer = CCppAnalyzer()
-        assert analyzer._is_test_function(func_name) is expected
+        assert analyzer._is_test_function_common(func_name) is expected
 
 
 class TestCCppAnalyzerSecurity:

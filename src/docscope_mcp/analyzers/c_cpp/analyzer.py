@@ -12,8 +12,11 @@ Architecture:
 
 import logging
 import re
-from typing import Any, Literal, cast
+from dataclasses import dataclass, field
+from typing import Any, cast
 
+from docscope_mcp.analyzers.priority import PriorityCalculationMixin
+from docscope_mcp.analyzers.quality import QualityAssessmentMixin
 from docscope_mcp.models import (
     DEFAULT_CONFIG,
     AnalysisConfig,
@@ -21,73 +24,143 @@ from docscope_mcp.models import (
     FunctionInfo,
     QualityAssessment,
     QualityIndicators,
-    QualityLevel,
 )
 
-# Pre-compiled regex patterns for C++ parsing
-# Matches Doxygen comments: /** ... */ or /// or //!
-REGEX_DOXYGEN_BLOCK = re.compile(
-    r"(?P<doxygen>(?:/\*\*[\s\S]*?\*/|(?:\s*(?:///|//!).*\n)+))"
-    r"\s*"
-    r"(?P<template>template\s*<[^>]*>\s*)?"
-    r"(?P<modifiers>(?:(?:static|virtual|inline|constexpr|explicit|friend|extern)\s+)*)"
-    r"(?P<return_type>(?:const\s+)?[\w:<>&*\s]+?(?:\s*[*&]+)?)\s+"
-    r"(?P<class_prefix>(?:\w+::)*)"
-    r"(?P<name>~?\w+)\s*"
-    r"\((?P<params>[^)]*)\)"
-    r"(?P<qualifiers>(?:\s*(?:const|override|final|noexcept|=\s*0|=\s*default|=\s*delete))*)",
-    re.MULTILINE,
-)
 
-REGEX_FUNCTION = re.compile(
-    r"(?P<template>template\s*<[^>]*>\s*)?"
-    r"(?P<modifiers>(?:(?:static|virtual|inline|constexpr|explicit|friend|extern)\s+)*)"
-    r"(?P<return_type>(?:const\s+)?[\w:<>&*\s]+?(?:\s*[*&]+)?)\s+"
-    r"(?P<class_prefix>(?:\w+::)*)"
-    r"(?P<name>~?\w+)\s*"
-    r"\((?P<params>[^)]*)\)"
-    r"(?P<qualifiers>(?:\s*(?:const|override|final|noexcept|=\s*0|=\s*default|=\s*delete))*)",
-    re.MULTILINE,
-)
+@dataclass(frozen=True)
+class CppParsingPatterns:
+    """Pre-compiled regex patterns for C/C++ function parsing.
 
-REGEX_CLASS = re.compile(
-    r"(?P<doxygen>(?:/\*\*[\s\S]*?\*/|(?:\s*(?:///|//!).*\n)+))?\s*"
-    r"(?:class|struct)\s+(?P<name>\w+)",
-    re.MULTILINE,
-)
+    Groups patterns for function/method discovery in C/C++ source code.
+    All patterns are pre-compiled at module load for performance.
 
-REGEX_PARAM = re.compile(
-    r"(?P<type>(?:const\s+)?[\w:<>&*\s]+(?:\s*[*&]+)?)\s+"
-    r"(?P<name>\w+)"
-    r"(?:\s*=\s*(?P<default>[^,)]+))?"
-)
+    Attributes:
+        doxygen_block: Matches function with preceding Doxygen comment.
+        function: Matches function signature without documentation.
+        class_decl: Matches class/struct declarations.
+        param: Matches function parameter declarations.
+    """
 
-# Doxygen tag patterns
-REGEX_DOXYGEN_BRIEF = re.compile(r"@brief\s+(.+?)(?=@|\*/|$)", re.DOTALL)
-REGEX_DOXYGEN_BRIEF_ALT = re.compile(r"\\brief\s+(.+?)(?=\\|@|\*/|$)", re.DOTALL)
-REGEX_DOXYGEN_PARAM = re.compile(
-    r"@param(?:\[(?:in|out|in,out)\])?\s+(\w+)\s+(.+?)(?=@param|@return|@throw|@|\\|\*/|$)",
-    re.DOTALL,
-)
-REGEX_DOXYGEN_PARAM_ALT = re.compile(
-    r"\\param(?:\[(?:in|out|in,out)\])?\s+(\w+)\s+(.+?)(?=\\param|\\return|\\throw|\\|@|\*/|$)",
-    re.DOTALL,
-)
-REGEX_DOXYGEN_RETURN = re.compile(r"@returns?\s+(.+?)(?=@|\*/|$)", re.DOTALL)
-REGEX_DOXYGEN_RETURN_ALT = re.compile(r"\\returns?\s+(.+?)(?=\\|@|\*/|$)", re.DOTALL)
-REGEX_DOXYGEN_THROW = re.compile(r"@(?:throw|throws|exception)\s+(.+?)(?=@|\*/|$)", re.DOTALL)
-REGEX_DOXYGEN_THROW_ALT = re.compile(
-    r"\\(?:throw|throws|exception)\s+(.+?)(?=\\|@|\*/|$)", re.DOTALL
-)
-REGEX_DOXYGEN_EXAMPLE = re.compile(r"@(?:example|code)(.+?)(?:@endcode|@|\*/|$)", re.DOTALL)
-REGEX_DOXYGEN_EXAMPLE_ALT = re.compile(
-    r"\\(?:example|code)(.+?)(?:\\endcode|\\|@|\*/|$)", re.DOTALL
-)
-REGEX_DOXYGEN_DETAILS = re.compile(r"@details\s+(.+?)(?=@|\*/|$)", re.DOTALL)
-REGEX_DOXYGEN_DETAILS_ALT = re.compile(r"\\details\s+(.+?)(?=\\|@|\*/|$)", re.DOTALL)
+    doxygen_block: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(
+            r"(?P<doxygen>(?:/\*\*[\s\S]*?\*/|(?:\s*(?:///|//!).*\n)+))"
+            r"\s*"
+            r"(?P<template>template\s*<[^>]*>\s*)?"
+            r"(?P<modifiers>(?:(?:static|virtual|inline|constexpr|explicit|friend|extern)\s+)*)"
+            r"(?P<return_type>(?:const\s+)?[\w:<>&*\s]+?(?:\s*[*&]+)?)\s+"
+            r"(?P<class_prefix>(?:\w+::)*)"
+            r"(?P<name>~?\w+)\s*"
+            r"\((?P<params>[^)]*)\)"
+            r"(?P<qualifiers>(?:\s*(?:const|override|final|noexcept|=\s*0|=\s*default|=\s*delete))*)",
+            re.MULTILINE,
+        )
+    )
+    function: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(
+            r"(?P<template>template\s*<[^>]*>\s*)?"
+            r"(?P<modifiers>(?:(?:static|virtual|inline|constexpr|explicit|friend|extern)\s+)*)"
+            r"(?P<return_type>(?:const\s+)?[\w:<>&*\s]+?(?:\s*[*&]+)?)\s+"
+            r"(?P<class_prefix>(?:\w+::)*)"
+            r"(?P<name>~?\w+)\s*"
+            r"\((?P<params>[^)]*)\)"
+            r"(?P<qualifiers>(?:\s*(?:const|override|final|noexcept|=\s*0|=\s*default|=\s*delete))*)",
+            re.MULTILINE,
+        )
+    )
+    class_decl: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(
+            r"(?P<doxygen>(?:/\*\*[\s\S]*?\*/|(?:\s*(?:///|//!).*\n)+))?\s*"
+            r"(?:class|struct)\s+(?P<name>\w+)",
+            re.MULTILINE,
+        )
+    )
+    param: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(
+            r"(?P<type>(?:const\s+)?[\w:<>&*\s]+(?:\s*[*&]+)?)\s+"
+            r"(?P<name>\w+)"
+            r"(?:\s*=\s*(?P<default>[^,)]+))?"
+        )
+    )
 
 
-class CCppAnalyzer:
+@dataclass(frozen=True)
+class DoxygenTagPatterns:
+    """Pre-compiled regex patterns for Doxygen tag parsing.
+
+    Groups patterns for extracting documentation from Doxygen comments.
+    Supports both @ and \\ command prefixes per Doxygen spec.
+
+    Attributes:
+        brief: @brief tag pattern.
+        brief_alt: \\brief tag pattern.
+        param: @param tag pattern with optional [in/out] direction.
+        param_alt: \\param tag pattern.
+        returns: @return/@returns tag pattern.
+        returns_alt: \\return/\\returns tag pattern.
+        throws: @throw/@throws/@exception tag pattern.
+        throws_alt: \\throw/\\throws/\\exception tag pattern.
+        example: @example/@code tag pattern.
+        example_alt: \\example/\\code tag pattern.
+        details: @details tag pattern.
+        details_alt: \\details tag pattern.
+    """
+
+    brief: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(r"@brief\s+(.+?)(?=@|\*/|$)", re.DOTALL)
+    )
+    brief_alt: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(r"\\brief\s+(.+?)(?=\\|@|\*/|$)", re.DOTALL)
+    )
+    param: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(
+            r"@param(?:\[(?:in|out|in,out)\])?\s+(\w+)\s+(.+?)(?=@param|@return|@throw|@|\\|\*/|$)",
+            re.DOTALL,
+        )
+    )
+    param_alt: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(
+            r"\\param(?:\[(?:in|out|in,out)\])?\s+(\w+)\s+(.+?)(?=\\param|\\return|\\throw|\\|@|\*/|$)",
+            re.DOTALL,
+        )
+    )
+    returns: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(r"@returns?\s+(.+?)(?=@|\*/|$)", re.DOTALL)
+    )
+    returns_alt: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(r"\\returns?\s+(.+?)(?=\\|@|\*/|$)", re.DOTALL)
+    )
+    throws: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(
+            r"@(?:throw|throws|exception)\s+(.+?)(?=@|\*/|$)", re.DOTALL
+        )
+    )
+    throws_alt: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(
+            r"\\(?:throw|throws|exception)\s+(.+?)(?=\\|@|\*/|$)", re.DOTALL
+        )
+    )
+    example: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(r"@(?:example|code)(.+?)(?:@endcode|@|\*/|$)", re.DOTALL)
+    )
+    example_alt: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(
+            r"\\(?:example|code)(.+?)(?:\\endcode|\\|@|\*/|$)", re.DOTALL
+        )
+    )
+    details: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(r"@details\s+(.+?)(?=@|\*/|$)", re.DOTALL)
+    )
+    details_alt: re.Pattern[str] = field(
+        default_factory=lambda: re.compile(r"\\details\s+(.+?)(?=\\|@|\*/|$)", re.DOTALL)
+    )
+
+
+# Module-level pattern instances (compiled once at import)
+CPP_PATTERNS = CppParsingPatterns()
+DOXYGEN_PATTERNS = DoxygenTagPatterns()
+
+
+class CCppAnalyzer(QualityAssessmentMixin, PriorityCalculationMixin):
     """C/C++ documentation quality analyzer using regex-based parsing.
 
     Analyzes C and C++ source code to identify functions needing documentation
@@ -230,42 +303,17 @@ class CCppAnalyzer:
         """
         min_length = self.config.min_docstring_length
         if not docstring or len(docstring.strip()) < min_length:
-            return {
-                "quality": QualityLevel.POOR.value,
-                "score": 0.0,
-                "missing": ["doxygen documentation"],
-                "needs_improvement": True,
-                "indicators": {},
-            }
+            return cast(
+                QualityAssessment, self._build_empty_quality_assessment("doxygen documentation")
+            )
 
-        is_test = self._is_test_function(func_name)
+        is_test = self._is_test_function_common(func_name)
         quality_indicators = self._calculate_quality_indicators(docstring, func_info, is_test)
         quality_indicators = self._validate_signature_coverage(quality_indicators, func_info)
 
-        indicator_values = list(quality_indicators.values())
-        score = (
-            sum(cast(list[bool], indicator_values)) / len(indicator_values)
-            if indicator_values
-            else 0.0
-        )
-
-        missing = [key.replace("_", " ") for key, value in quality_indicators.items() if not value]
-
-        thresholds = self.config.quality_thresholds
-        quality_str: Literal["poor", "basic", "good", "excellent"]
-
-        if score >= thresholds["excellent"]:
-            quality_str = "excellent"
-            needs_improvement = False
-        elif score >= thresholds["good"]:
-            quality_str = "good"
-            needs_improvement = True
-        elif score >= thresholds["basic"]:
-            quality_str = "basic"
-            needs_improvement = True
-        else:
-            quality_str = "poor"
-            needs_improvement = True
+        score = self._calculate_indicator_score(quality_indicators)
+        missing = self._identify_missing_elements(quality_indicators)
+        quality_str, needs_improvement = self._determine_quality_level(score)
 
         return {
             "quality": quality_str,
@@ -307,34 +355,6 @@ class CCppAnalyzer:
             + self._calculate_quality_gap_score(quality_assessment)
         )
 
-    # ==================== SECURITY VALIDATION ====================
-
-    def _validate_code_security(self, code: str) -> list[dict[str, Any]] | None:
-        """Validate code for security issues (size limits).
-
-        Enforces code size limits to prevent denial-of-service attacks
-        from maliciously large input files. Part of the security boundary.
-
-        Args:
-            code: Source code string to validate.
-
-        Returns:
-            Error dict list if validation fails, None if valid.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> result = analyzer._validate_code_security('x' * 10_000_000)
-            >>> result[0]['error']
-            'Code too large (max 5120KB)'
-        """
-        if len(code) > self.config.max_code_size:
-            max_kb = self.config.max_code_size // 1024
-            return [{"error": f"Code too large (max {max_kb}KB)"}]
-
-        return None
-
     # ==================== FUNCTION EXTRACTION ====================
 
     def _extract_functions_needing_improvement(self, code: str) -> list[dict[str, Any]]:
@@ -362,7 +382,7 @@ class CCppAnalyzer:
         processed_positions: set[int] = set()
 
         # First pass: functions with Doxygen comments
-        for match in REGEX_DOXYGEN_BLOCK.finditer(code):
+        for match in CPP_PATTERNS.doxygen_block.finditer(code):
             func_info = self._extract_function_info(match, code, has_doxygen=True)
             doxygen = self._clean_doxygen(match.group("doxygen") or "")
             processed_positions.add(match.start())
@@ -383,7 +403,7 @@ class CCppAnalyzer:
                 )
 
         # Second pass: functions without Doxygen comments
-        for match in REGEX_FUNCTION.finditer(code):
+        for match in CPP_PATTERNS.function.finditer(code):
             if match.start() in processed_positions:
                 continue
             # Skip if this is part of a function with doxygen (already processed)
@@ -449,7 +469,7 @@ class CCppAnalyzer:
 
         # Parse parameters
         args: list[ArgInfo] = []
-        for param_match in REGEX_PARAM.finditer(params_str):
+        for param_match in CPP_PATTERNS.param.finditer(params_str):
             args.append(
                 {
                     "name": param_match.group("name"),
@@ -474,7 +494,7 @@ class CCppAnalyzer:
             "line": line,
             "complexity": complexity,
             "is_private": is_private,
-            "is_test": self._is_test_function(name),
+            "is_test": self._is_test_function_common(name),
             "args": args,
             "returns": return_type if return_type != "void" else None,
             "decorators": [],
@@ -558,9 +578,10 @@ class CCppAnalyzer:
             No exceptions raised.
 
         Example:
-            >>> # match = REGEX_FUNCTION.search('void foo();')
-            >>> # analyzer._is_declaration_only(match, code)
-            >>> # True
+            >>> code = 'void foo();'
+            >>> match = REGEX_FUNCTION.search(code)
+            >>> analyzer._is_declaration_only(match, code)
+            True
         """
         end = match.end()
         # Look for semicolon before brace
@@ -611,57 +632,6 @@ class CCppAnalyzer:
             cleaned.append(line)
         return "\n".join(cleaned)
 
-    def _is_test_function(self, func_name: str) -> bool:
-        """Detect test functions by naming pattern.
-
-        Identifies test functions to apply relaxed documentation requirements.
-        Test functions may skip some quality checks that apply to production code.
-
-        Args:
-            func_name: Name of function to check.
-
-        Returns:
-            True if function appears to be a test function.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> analyzer._is_test_function('test_user_login')
-            True
-            >>> analyzer._is_test_function('process_data')
-            False
-        """
-        name_lower = func_name.lower()
-        return (
-            name_lower.startswith("test")
-            or name_lower.endswith("test")
-            or func_name.startswith("TEST_")
-            or func_name.startswith("Test_")
-        )
-
-    def _sort_by_priority(self, functions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Sort results by priority descending.
-
-        Orders functions so highest-priority improvements appear first.
-        Enables users to focus on most impactful documentation updates.
-
-        Args:
-            functions: List of function analysis dicts.
-
-        Returns:
-            Sorted list with highest priority first.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> sorted_funcs = analyzer._sort_by_priority([{'priority': 1}, {'priority': 5}])
-            >>> sorted_funcs[0]['priority']
-            5
-        """
-        return sorted(functions, key=lambda x: x["priority"], reverse=True)
-
     # ==================== QUALITY INDICATORS ====================
 
     def _calculate_quality_indicators(
@@ -692,45 +662,37 @@ class CCppAnalyzer:
             True
         """
         indicators: dict[str, bool] = {}
+        dp = DOXYGEN_PATTERNS  # Local alias for readability
 
         # Check for brief description
         has_brief = bool(
-            REGEX_DOXYGEN_BRIEF.search(docstring)
-            or REGEX_DOXYGEN_BRIEF_ALT.search(docstring)
+            dp.brief.search(docstring)
+            or dp.brief_alt.search(docstring)
             or (docstring and not docstring.startswith("@") and not docstring.startswith("\\"))
         )
         indicators["brief_description"] = has_brief
 
         # Check for detailed description
-        has_details = bool(
-            REGEX_DOXYGEN_DETAILS.search(docstring) or REGEX_DOXYGEN_DETAILS_ALT.search(docstring)
+        has_details = bool(dp.details.search(docstring) or dp.details_alt.search(docstring))
+        indicators["detailed_description"] = (
+            has_details or len(docstring) > self.config.thresholds.min_detailed_chars_brief
         )
-        indicators["detailed_description"] = has_details or len(docstring) > 100
 
         if not is_test:
             # Check for param documentation
-            has_params = bool(
-                REGEX_DOXYGEN_PARAM.search(docstring) or REGEX_DOXYGEN_PARAM_ALT.search(docstring)
-            )
+            has_params = bool(dp.param.search(docstring) or dp.param_alt.search(docstring))
             indicators["args_section"] = has_params
 
             # Check for returns documentation
-            has_returns = bool(
-                REGEX_DOXYGEN_RETURN.search(docstring) or REGEX_DOXYGEN_RETURN_ALT.search(docstring)
-            )
+            has_returns = bool(dp.returns.search(docstring) or dp.returns_alt.search(docstring))
             indicators["returns_section"] = has_returns
 
             # Check for exception documentation
-            has_throws = bool(
-                REGEX_DOXYGEN_THROW.search(docstring) or REGEX_DOXYGEN_THROW_ALT.search(docstring)
-            )
+            has_throws = bool(dp.throws.search(docstring) or dp.throws_alt.search(docstring))
             indicators["raises_section"] = has_throws
 
             # Check for example
-            has_example = bool(
-                REGEX_DOXYGEN_EXAMPLE.search(docstring)
-                or REGEX_DOXYGEN_EXAMPLE_ALT.search(docstring)
-            )
+            has_example = bool(dp.example.search(docstring) or dp.example_alt.search(docstring))
             indicators["example_section"] = has_example
 
             # Context indicators
@@ -746,147 +708,8 @@ class CCppAnalyzer:
                 ]
             )
 
-            indicators["implementation_details"] = len(docstring) > 200
+            indicators["implementation_details"] = (
+                len(docstring) > self.config.thresholds.min_detailed_chars_standard
+            )
 
         return cast(QualityIndicators, indicators)
-
-    def _validate_signature_coverage(
-        self, quality_indicators: QualityIndicators, func_info: FunctionInfo
-    ) -> QualityIndicators:
-        """Validate param/returns sections against function signature.
-
-        Cross-references docstring sections with actual function signature
-        to ensure documented params match declared params.
-
-        Args:
-            quality_indicators: Current quality indicator values.
-            func_info: Function metadata with args and return type.
-
-        Returns:
-            Updated QualityIndicators with signature validation applied.
-            May set args_section or returns_section to False if missing.
-
-        Raises:
-            KeyError: If func_info missing 'args' or 'returns' keys.
-
-        Example:
-            >>> indicators = {'args_section': True, 'returns_section': True}
-            >>> result = analyzer._validate_signature_coverage(
-            ...     indicators, func_info
-            ... )
-        """
-        has_params = len(func_info.get("args", [])) > 0
-
-        if has_params and not quality_indicators.get("args_section", True):
-            quality_indicators["args_section"] = False
-
-        has_return = func_info.get("returns") and func_info["returns"] != "void"
-        if has_return and not quality_indicators.get("returns_section", True):
-            quality_indicators["returns_section"] = False
-
-        return quality_indicators
-
-    # ==================== PRIORITY CALCULATION ====================
-
-    def _calculate_visibility_score(self, func_info: FunctionInfo) -> int:
-        """Calculate priority contribution from function visibility.
-
-        Public functions score higher since they're part of the API
-        and need better documentation for users.
-
-        Args:
-            func_info: Function metadata with is_private flag.
-
-        Returns:
-            0 for private functions, 3 for public functions.
-
-        Raises:
-            KeyError: If func_info missing 'is_private' key.
-
-        Example:
-            >>> analyzer._calculate_visibility_score({'is_private': False})
-            3
-        """
-        return 0 if func_info["is_private"] else 3
-
-    def _calculate_complexity_score(self, func_info: FunctionInfo) -> int:
-        """Calculate priority contribution from function complexity.
-
-        Complex functions need better documentation to explain logic.
-        Higher complexity = higher priority for documentation.
-
-        Args:
-            func_info: Function metadata with complexity score.
-
-        Returns:
-            0-2 based on complexity thresholds (>10=2, >5=1, else 0).
-
-        Raises:
-            KeyError: If func_info missing 'complexity' key.
-
-        Example:
-            >>> analyzer._calculate_complexity_score({'complexity': 10})
-            2
-        """
-        complexity = func_info["complexity"]
-        if complexity > 10:
-            return 2
-        elif complexity > 5:
-            return 1
-        return 0
-
-    def _calculate_signature_score(self, func_info: FunctionInfo) -> int:
-        """Calculate priority contribution from signature complexity.
-
-        Functions with more parameters or return values need better
-        documentation to explain their interface.
-
-        Args:
-            func_info: Function metadata with args and returns.
-
-        Returns:
-            0-5+ based on parameter count and return presence.
-
-        Raises:
-            KeyError: If func_info missing 'args' or 'returns' keys.
-
-        Example:
-            >>> func_info = {'args': [{'name': 'x'}], 'returns': 'int'}
-            >>> analyzer._calculate_signature_score(func_info)
-            3
-        """
-        score = 0
-        param_count = len(func_info["args"])
-        if param_count > 0:
-            score += min(param_count, 3)
-        if func_info["returns"]:
-            score += 2
-        return score
-
-    def _calculate_quality_gap_score(self, quality_assessment: QualityAssessment) -> int:
-        """Calculate priority contribution from documentation quality gap.
-
-        Lower quality = higher priority for improvement. Ensures poorly
-        documented functions appear first in MCP tool results.
-
-        Args:
-            quality_assessment: Quality assessment with score.
-
-        Returns:
-            0-3 based on quality score thresholds.
-
-        Raises:
-            KeyError: If quality_assessment missing 'score' key.
-
-        Example:
-            >>> analyzer._calculate_quality_gap_score({'score': 0.2})
-            3
-        """
-        quality_score = quality_assessment["score"]
-        if quality_score < 0.3:
-            return 3
-        elif quality_score < 0.6:
-            return 2
-        elif quality_score < 0.8:
-            return 1
-        return 0
