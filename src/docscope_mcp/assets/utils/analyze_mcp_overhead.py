@@ -30,7 +30,7 @@ import argparse
 import json
 import logging
 import re
-import subprocess  # nosec B404 - Required to run MCP servers from user's mcp.json config
+import subprocess  # nosec B404 - Required to spawn MCP servers from user's mcp.json config
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -115,50 +115,27 @@ BAR_WIDTH = 20  # Width of progress bar (each segment = 5%)
 
 
 def safe_percentage(value: int | float, total: int | float) -> float:
-    """Safely calculate percentage without division by zero.
-
-    Prevents ZeroDivisionError when calculating buffer usage percentages.
-    Used throughout the analysis to safely compute ratios for progress
-    bars, capacity displays, and buffer utilization metrics.
+    """Calculate percentage safely, returning 0.0 if total is zero.
 
     Args:
-        value: Numerator value (tokens used, etc.).
-        total: Denominator value (buffer limit, etc.).
+        value: Numerator value.
+        total: Denominator value (divisor).
 
     Returns:
         Percentage (0-100) or 0.0 if total is zero.
-
-    Raises:
-        No exceptions - handles division by zero gracefully.
-
-    Example:
-        >>> safe_percentage(50, 100)
-        50.0
-        >>> safe_percentage(10, 0)
-        0.0
     """
     return (value / total * 100) if total > 0 else 0.0
 
 
 def make_progress_bar(percentage: float, width: int = BAR_WIDTH) -> str:
-    """Create a progress bar string for CLI visualization.
-
-    Generates ASCII progress bar using block characters. Used to display
-    buffer usage percentages in the overhead analysis output.
+    """Create a progress bar string.
 
     Args:
         percentage: Percentage value (0-100).
         width: Total width of the bar in characters.
 
     Returns:
-        Progress bar string with filled (█) and empty (░) segments.
-
-    Raises:
-        No exceptions - clamps values to valid range.
-
-    Example:
-        >>> make_progress_bar(50, 10)
-        '█████░░░░░'
+        Progress bar string with filled and empty segments.
     """
     filled = int(percentage / (100 / width))
     filled = max(0, min(width, filled))  # Clamp to valid range
@@ -184,94 +161,22 @@ class InstructionFile:
 
     @property
     def char_count(self) -> int:
-        """Total character count of the content.
-
-        Used for token estimation (chars / CHARS_PER_TOKEN). Provides the
-        basis for approximate token calculations in buffer analysis.
-
-        Args:
-            None - property accessor.
-
-        Returns:
-            Number of characters in the instruction file content.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> file = InstructionFile(Path('test.md'), 'Hello', 'prompt')
-            >>> file.char_count
-            5
-        """
+        """Total character count of the content."""
         return len(self.content)
 
     @property
     def line_count(self) -> int:
-        """Number of lines in the content.
-
-        Useful for sizing display and debugging instruction files. Also helps
-        understand the scope of instruction content in buffer analysis.
-
-        Args:
-            None - property accessor.
-
-        Returns:
-            Line count of the instruction file.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> file = InstructionFile(Path('t.md'), 'line1\nline2', 'prompt')
-            >>> file.line_count
-            2
-        """
+        """Number of lines in the content."""
         return len(self.content.splitlines())
 
     @property
     def estimated_tokens(self) -> int:
-        """Estimate tokens using CHARS_PER_TOKEN constant.
-
-        Provides approximate token count for buffer calculations.
-        Uses 4 chars per token as a reasonable approximation for English text.
-
-        Args:
-            None - property accessor.
-
-        Returns:
-            Estimated token count (char_count // CHARS_PER_TOKEN).
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> file = InstructionFile(Path('t.md'), 'x' * 100, 'prompt')
-            >>> file.estimated_tokens
-            25
-        """
+        """Estimate tokens using CHARS_PER_TOKEN constant."""
         return self.char_count // CHARS_PER_TOKEN
 
     @property
     def relative_path(self) -> str:
-        """Get a shortened path for display (max 50 chars).
-
-        Truncates long paths from the left to fit in tables. Ensures
-        consistent column widths in buffer analysis output.
-
-        Args:
-            None - property accessor.
-
-        Returns:
-            Path string, truncated if longer than 50 characters.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> file = InstructionFile(Path('x' * 60 + '.md'), '', 'prompt')
-            >>> len(file.relative_path) <= 50
-            True
-        """
+        """Get a shortened path for display (max 50 chars)."""
         return str(self.path)[-50:] if len(str(self.path)) > 50 else str(self.path)
 
 
@@ -372,45 +277,17 @@ _MODEL_CONFIGS: dict[str, ModelConfig] = {
 def get_model_config(model: str) -> ModelConfig:
     """Get configuration for a model, falling back to default if not found.
 
-    Provides context window limits and buffer allocations for the specified
-    model. Falls back to claude-opus-4.5 if model name not recognized.
-
     Args:
-        model: Model name to look up (e.g., 'claude-opus-4.5').
+        model: Model name to look up.
 
     Returns:
-        ModelConfig with context, tools, conversation, instructions limits.
-
-    Raises:
-        No exceptions - returns default config for unknown models.
-
-    Example:
-        >>> config = get_model_config('claude-opus-4.5')
-        >>> config.context
-        200000
+        ModelConfig for the requested model or default model.
     """
     return _MODEL_CONFIGS.get(model, _MODEL_CONFIGS[DEFAULT_MODEL])
 
 
 def get_all_model_names() -> list[str]:
-    """Get list of all supported model names.
-
-    Returns the model names for use in CLI argument choices and
-    model comparison displays.
-
-    Args:
-        None - reads from module-level _MODEL_CONFIGS.
-
-    Returns:
-        List of model name strings (e.g., ['claude-opus-4.5', ...]).
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> 'claude-opus-4.5' in get_all_model_names()
-        True
-    """
+    """Get list of all supported model names."""
     return list(_MODEL_CONFIGS.keys())
 
 
@@ -447,28 +324,7 @@ class BuiltinToolSpec:
     def create(
         cls, name: str, desc_length: int, params: list[str] | tuple[str, ...]
     ) -> BuiltinToolSpec:
-        """Factory method to create BuiltinToolSpec from list or tuple params.
-
-        Normalizes parameter collections to tuples for immutable storage.
-        Enables flexible instantiation from configuration data.
-
-        Args:
-            cls: The BuiltinToolSpec class (implicit classmethod parameter).
-            name: Tool name (e.g., 'read_file', 'run_in_terminal').
-            desc_length: Estimated description length in characters.
-            params: Parameter names as list or tuple.
-
-        Returns:
-            BuiltinToolSpec instance with params converted to tuple.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> spec = BuiltinToolSpec.create('read_file', 280, ['filePath', 'offset?'])
-            >>> spec.params
-            ('filePath', 'offset?')
-        """
+        """Factory method to create BuiltinToolSpec from list or tuple params."""
         return cls(name, desc_length, tuple(params) if isinstance(params, list) else params)
 
 
@@ -575,48 +431,12 @@ class ToolInfo:
 
     @property
     def desc_chars(self) -> int:
-        """Character count of the description.
-
-        Used for token estimation in tool overhead calculations.
-        Provides the raw character count before token conversion.
-
-        Args:
-            None - property accessor for description length.
-
-        Returns:
-            Number of characters in the tool description.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> tool = ToolInfo('test', 'A test tool', {}, 'vscode')
-            >>> tool.desc_chars
-            11
-        """
+        """Character count of the description."""
         return len(self.description)
 
     @property
     def param_count(self) -> int:
-        """Number of parameters in the tool schema.
-
-        Counts properties in the JSON schema for token estimation.
-        Each parameter adds TOKENS_PER_PARAMETER to the estimate.
-
-        Args:
-            None - property accessor for parameter count.
-
-        Returns:
-            Parameter count (0 if no properties defined).
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> tool = ToolInfo('test', 'desc', {'properties': {'a': {}, 'b': {}}}, 'vscode')
-            >>> tool.param_count
-            2
-        """
+        """Number of parameters in the tool schema."""
         if "properties" in self.parameters:
             return len(self.parameters["properties"])
         return 0
@@ -625,23 +445,11 @@ class ToolInfo:
     def estimated_tokens(self) -> int:
         """Estimate tokens for this tool schema.
 
-        Calculates estimated token count based on tool name, parameters,
-        description length, and JSON overhead. Used for context window
-        budget calculations.
-
-        Args:
-            None - property accessor using instance attributes.
-
-        Returns:
-            Estimated token count for the complete tool schema.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> tool = ToolInfo('test', 'A' * 100, {'properties': {'p1': {}}}, 'src')
-            >>> tool.estimated_tokens > 0
-            True
+        Uses constants for token estimation:
+        - TOKENS_PER_TOOL_NAME for the tool name
+        - TOKENS_PER_PARAMETER for each parameter
+        - CHARS_PER_TOKEN for description conversion
+        - TOKENS_JSON_OVERHEAD for JSON structure
         """
         tokens = TOKENS_PER_TOOL_NAME
         tokens += self.param_count * TOKENS_PER_PARAMETER
@@ -673,72 +481,17 @@ class MCPServerInfo:
 
     @property
     def total_tokens(self) -> int:
-        """Total estimated tokens for all tools in this server.
-
-        Aggregates token estimates across all tools exposed by this MCP server.
-        Used for calculating server-level context window overhead.
-
-        Args:
-            None - property accessor aggregating tool tokens.
-
-        Returns:
-            Sum of estimated_tokens for all tools.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> server = MCPServerInfo('test', 'cmd', [])
-            >>> server.total_tokens
-            0
-        """
+        """Total estimated tokens for all tools in this server."""
         return sum(t.estimated_tokens for t in self.tools)
 
     @property
     def total_desc_chars(self) -> int:
-        """Total description characters across all tools.
-
-        Aggregates character counts from all tool descriptions.
-        Used for detailed analysis of server overhead distribution.
-
-        Args:
-            None - property accessor aggregating tool descriptions.
-
-        Returns:
-            Sum of desc_chars for all tools.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> server = MCPServerInfo('test', 'cmd', [])
-            >>> server.total_desc_chars
-            0
-        """
+        """Total description characters across all tools."""
         return sum(t.desc_chars for t in self.tools)
 
     @property
     def total_params(self) -> int:
-        """Total parameter count across all tools.
-
-        Aggregates parameter counts for schema complexity analysis.
-        Higher counts indicate more complex tool interfaces consuming
-        more context window space.
-
-        Args:
-            None - property accessor aggregating tool parameters.
-
-        Returns:
-            Sum of param_count for all tools.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> server = MCPServerInfo('test', 'cmd', [])
-            >>> server.total_params
-            0
-        """
+        """Total parameter count across all tools."""
         return sum(t.param_count for t in self.tools)
 
 
@@ -771,9 +524,6 @@ class TokenAggregation:
     ) -> TokenAggregation:
         """Create aggregation from tool sources.
 
-        Factory method that calculates token totals from VS Code built-in
-        tools and MCP server tools. Supports replay mode with active tools.
-
         Args:
             vscode_tools: VS Code built-in tools.
             servers: MCP servers with their tools.
@@ -781,14 +531,6 @@ class TokenAggregation:
 
         Returns:
             TokenAggregation with calculated totals.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> agg = TokenAggregation.from_tools(vscode, servers)
-            >>> agg.total > 0
-            True
         """
         all_mcp_tools = [t for s in servers for t in s.tools]
 
@@ -845,48 +587,12 @@ class AnalysisContext:
 
     @property
     def token_aggregation(self) -> TokenAggregation:
-        """Calculate token aggregation for this context.
-
-        Computes totals from VS Code and MCP tools in this context.
-        Delegates to TokenAggregation.from_tools for actual calculation.
-
-        Args:
-            None - property accessor using context attributes.
-
-        Returns:
-            TokenAggregation with vscode, mcp, and total token counts.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> ctx = AnalysisContext([], [], [])
-            >>> ctx.token_aggregation.total
-            0
-        """
+        """Calculate token aggregation for this context."""
         return TokenAggregation.from_tools(self.vscode_tools, self.servers, self.active_tools)
 
     @property
     def total_instruction_tokens(self) -> int:
-        """Total tokens for all instruction files.
-
-        Aggregates estimated tokens across all instruction files found.
-        Used for calculating instructions buffer usage.
-
-        Args:
-            None - property accessor using instruction_files attribute.
-
-        Returns:
-            Sum of estimated_tokens for all instruction files.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> ctx = AnalysisContext([], [], [])
-            >>> ctx.total_instruction_tokens
-            0
-        """
+        """Total tokens for all instruction files."""
         return sum(f.estimated_tokens for f in self.instruction_files)
 
 
@@ -894,8 +600,7 @@ def query_mcp_server(name: str, command: str, args: list[str]) -> MCPServerInfo:
     """Query an MCP server for its tool definitions via JSON-RPC.
 
     Sends initialize and tools/list requests to the server and parses
-    the response to extract tool schemas. Spawns the server process,
-    communicates over stdin/stdout, and parses JSON-RPC responses.
+    the response to extract tool schemas.
 
     Args:
         name: Server name (for identification in results).
@@ -904,14 +609,6 @@ def query_mcp_server(name: str, command: str, args: list[str]) -> MCPServerInfo:
 
     Returns:
         MCPServerInfo with tools populated, or error set if query failed.
-
-    Raises:
-        No exceptions raised to caller - errors captured in MCPServerInfo.error.
-
-    Example:
-        >>> server = query_mcp_server('test', 'node', ['server.js'])
-        >>> server.name
-        'test'
 
     Security Note:
         This function executes commands from .vscode/mcp.json. Users should
@@ -940,7 +637,7 @@ def query_mcp_server(name: str, command: str, args: list[str]) -> MCPServerInfo:
     try:
         # Run the MCP server and send requests
         # Security: command comes from user's mcp.json - see docstring
-        proc = subprocess.Popen(  # nosec B603 - Command from user's trusted mcp.json config
+        proc = subprocess.Popen(  # nosec B603 - Command from user's own mcp.json config, not untrusted input
             [command] + args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -987,9 +684,8 @@ def query_mcp_server(name: str, command: str, args: list[str]) -> MCPServerInfo:
 
 
 def load_mcp_config(workspace_path: Path) -> dict[str, Any]:
-    """Load MCP server configuration from workspace config file.
+    """Load MCP configuration from .vscode/mcp.json.
 
-    Loads and parses .vscode/mcp.json from the workspace root.
     Handles JSONC (JSON with comments) by stripping full-line comments.
     Note: Inline comments after values are NOT stripped to avoid breaking URLs.
 
@@ -1001,11 +697,6 @@ def load_mcp_config(workspace_path: Path) -> dict[str, Any]:
 
     Raises:
         json.JSONDecodeError: If the JSON is malformed after comment stripping.
-
-    Example:
-        >>> config = load_mcp_config(Path('/workspace'))
-        >>> 'servers' in config or config == {}
-        True
     """
     mcp_json = workspace_path / ".vscode" / "mcp.json"
     if not mcp_json.exists():
@@ -1023,22 +714,10 @@ def get_vscode_builtin_tools() -> list[ToolInfo]:
     """Get estimated VS Code built-in tools.
 
     Converts BuiltinToolSpec entries to ToolInfo objects with placeholder
-    descriptions sized to match estimated token counts. Used for baseline
-    overhead estimation when replay data is unavailable.
-
-    Args:
-        None - reads from module-level VSCODE_BUILTIN_TOOLS.
+    descriptions sized to match estimated token counts.
 
     Returns:
         List of ToolInfo for all VS Code built-in tools.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> tools = get_vscode_builtin_tools()
-        >>> len(tools) > 0
-        True
     """
     tools = []
     for category, tool_list in VSCODE_BUILTIN_TOOLS.items():
@@ -1060,22 +739,13 @@ def find_instruction_files(workspace_path: Path) -> list[InstructionFile]:
     """Find all instruction files in the workspace and user directories.
 
     Scans workspace and user config directories for Copilot instruction files
-    that contribute to the instructions buffer. Categorizes files by type
-    for display and analysis.
+    that contribute to the instructions buffer.
 
     Args:
         workspace_path: Root path of the workspace to scan.
 
     Returns:
         List of InstructionFile objects found.
-
-    Raises:
-        No exceptions raised to caller - missing directories are skipped.
-
-    Example:
-        >>> files = find_instruction_files(Path('/workspace'))
-        >>> isinstance(files, list)
-        True
 
     Searched Locations:
         Workspace:
@@ -1178,21 +848,11 @@ def find_instruction_files(workspace_path: Path) -> list[InstructionFile]:
 def _extract_tool_from_tool_call(entry: dict) -> ToolInfo | None:
     """Extract ToolInfo from a toolCall log entry.
 
-    Parses toolCall entries from chat replay to extract tool definitions
-    with full descriptions for accurate token estimation.
-
     Args:
         entry: A log entry dict with kind='toolCall'.
 
     Returns:
         ToolInfo if tool data found, None otherwise.
-
-    Raises:
-        No exceptions - returns None for malformed entries.
-
-    Example:
-        >>> entry = {'kind': 'toolCall', 'tool': {...}}
-        >>> info = _extract_tool_from_tool_call(entry)
     """
     tool = entry.get("tool") or {}
     if not isinstance(tool, dict):
@@ -1214,21 +874,11 @@ def _extract_tool_from_tool_call(entry: dict) -> ToolInfo | None:
 def _extract_tools_from_response(entry: dict) -> list[ToolInfo]:
     """Extract ToolInfo list from a request/response log entry.
 
-    Parses request/response entries from chat replay to find tool
-    definitions in the tools list.
-
     Args:
         entry: A log entry dict with kind='request' or 'response'.
 
     Returns:
         List of ToolInfo objects found in the entry.
-
-    Raises:
-        No exceptions - returns empty list for malformed entries.
-
-    Example:
-        >>> entry = {'kind': 'response', 'response': {'tools': [...]}}
-        >>> tools = _extract_tools_from_response(entry)
     """
     tools_found = []
     resp = entry.get("response") or entry.get("request")
@@ -1268,22 +918,11 @@ def _extract_tools_from_response(entry: dict) -> list[ToolInfo]:
 def _extract_metadata_from_entry(entry: dict) -> dict[str, Any]:
     """Extract metadata fields from a log entry.
 
-    Parses model name, token limits, and usage statistics from
-    chat replay log entries.
-
     Args:
         entry: A log entry dict.
 
     Returns:
         Dict with model, max_prompt_tokens, prompt_tokens, cached_tokens.
-
-    Raises:
-        No exceptions - returns defaults for missing fields.
-
-    Example:
-        >>> meta = _extract_metadata_from_entry(entry)
-        >>> meta['model']
-        'claude-opus-4.5'
     """
     result = {
         "model": None,
@@ -1311,26 +950,9 @@ def _extract_metadata_from_entry(entry: dict) -> dict[str, Any]:
 def _update_active_tools_map(active_tools_map: dict[str, ToolInfo], tool_info: ToolInfo) -> None:
     """Update active tools map, keeping the longest description.
 
-    Maintains a map of unique tools seen in replay, preferring entries
-    with longer descriptions for more accurate token estimation.
-    Modifies the map in place.
-
     Args:
-        active_tools_map: Map of tool name to ToolInfo (modified in place).
+        active_tools_map: Map of tool name to ToolInfo.
         tool_info: Tool to potentially add/update.
-
-    Returns:
-        None - modifies active_tools_map in place.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> tools_map = {}
-        >>> tool = ToolInfo('test', 'description', {}, 'source')
-        >>> _update_active_tools_map(tools_map, tool)
-        >>> 'test' in tools_map
-        True
     """
     tname = tool_info.name
     if (
@@ -1348,8 +970,7 @@ def parse_chat_replay(path: Path) -> dict[str, Any]:
     """Parse a Copilot chat replay JSON export and extract model+token usage and tools.
 
     Returns a summary dict containing per-prompt usage, per-model aggregates,
-    and the ACTIVE tools set extracted from the replay. Processes all prompts
-    and logs to build comprehensive usage statistics.
+    and the ACTIVE tools set extracted from the replay.
 
     The active_tools list contains ToolInfo objects with full descriptions from
     the actual Copilot session, allowing accurate token estimation.
@@ -1363,10 +984,6 @@ def parse_chat_replay(path: Path) -> dict[str, Any]:
     Raises:
         RuntimeError: If the replay file cannot be read.
         json.JSONDecodeError: If the file is not valid JSON.
-
-    Example:
-        >>> # summary = parse_chat_replay(Path('replay.json'))
-        >>> # summary['total_prompts'] >= 0
     """
     try:
         raw = path.read_text()
@@ -1471,9 +1088,6 @@ def calculate_buffer_usage(
 ) -> dict[str, Any]:
     """Calculate buffer usage percentages.
 
-    Computes how much of each buffer (tools, instructions, total) is consumed
-    by the current overhead. Essential for identifying optimization needs.
-
     Args:
         total_tool_tokens: Total estimated tokens for all tools.
         total_instruction_tokens: Total estimated tokens for instructions.
@@ -1481,15 +1095,6 @@ def calculate_buffer_usage(
 
     Returns:
         Dict with tools_buffer, instructions_buffer, and total_context usage.
-        Each sub-dict has used, limit, percentage, remaining.
-
-    Raises:
-        No exceptions - uses default model config for unknown models.
-
-    Example:
-        >>> usage = calculate_buffer_usage(10000, 2000, 'claude-opus-4.5')
-        >>> usage['tools_buffer']['percentage'] < 100
-        True
     """
     buffers = COPILOT_MODELS.get(model, COPILOT_MODELS[DEFAULT_MODEL])
 
@@ -1531,9 +1136,6 @@ def format_table(
 ) -> str:
     """Format data as an ASCII table with box-drawing characters.
 
-    Creates formatted tables for CLI output with automatic column width
-    calculation and configurable alignment.
-
     Args:
         headers: Column header strings.
         rows: List of row data (each row is a list of cell values).
@@ -1543,15 +1145,13 @@ def format_table(
     Returns:
         Multi-line string with ASCII table formatting.
 
-    Raises:
-        No exceptions raised.
-
     Example:
-        >>> print(format_table(['Name', 'Value'], [['foo', 123]]))
+        >>> format_table(['Name', 'Value'], [['foo', 123], ['bar', 456]])
         +------+-------+
         | Name | Value |
         +------+-------+
         | foo  | 123   |
+        | bar  | 456   |
         +------+-------+
     """
     if not alignments:
@@ -1596,22 +1196,9 @@ def _print_instructions_section(
 ) -> None:
     """Print the instructions buffer section.
 
-    Displays instruction files grouped by type with token counts and
-    percentages. Part of the analysis output. Formats output as
-    ASCII table for terminal display.
-
     Args:
         instruction_files: List of instruction files found.
         total_instruction_tokens: Total tokens across all instruction files.
-
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> _print_instructions_section([], 0)  # Prints "No instruction files found."
     """
     print()
     print("INSTRUCTIONS BUFFER")
@@ -1661,25 +1248,12 @@ def _print_tools_section(
 ) -> None:
     """Print the tools buffer section.
 
-    Displays tools categorized by source (VS Code categories, MCP servers)
-    with token counts and percentages. Core section of analysis output.
-    Formats as ASCII table with subtotals for each source.
-
     Args:
         vscode_tools: VS Code built-in tools.
         servers: MCP servers with their tools.
         total_tool_tokens: Total tokens for all tools.
         total_vscode_tokens: Tokens for VS Code tools only.
         total_mcp_tokens: Tokens for MCP tools only.
-
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> _print_tools_section([], [], 0, 0, 0)  # Prints empty tools table
     """
     print()
     print("TOOLS BUFFER")
@@ -1749,29 +1323,9 @@ def _print_tools_section(
 def _print_buffer_usage_box(buffer_usage: dict[str, Any], model: str) -> None:
     """Print the buffer usage summary box.
 
-    Displays ASCII box with progress bars for instructions and tools buffers,
-    showing usage percentages and remaining capacity. Core visualization
-    component for overhead analysis.
-
     Args:
         buffer_usage: Buffer usage dict from calculate_buffer_usage().
         model: Model name for display.
-
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> usage = {
-        ...     'instructions_buffer': {'percentage': 50, 'used': 4000,
-        ...                             'limit': 8000, 'remaining': 4000},
-        ...     'tools_buffer': {'percentage': 25, 'used': 8000,
-        ...                      'limit': 32000, 'remaining': 24000},
-        ...     'total_context': {'used': 12000, 'limit': 200000, 'percentage': 6}
-        ... }
-        >>> _print_buffer_usage_box(usage, 'claude-opus-4.5')  # Prints formatted box
     """
     print("BUFFER USAGE SUMMARY")
     print("-" * 70)
@@ -1828,21 +1382,8 @@ Buffer Allocations for {model}:
 def _print_replay_summary(replay_summary: dict[str, Any]) -> None:
     """Print the replay summary section.
 
-    Displays per-model statistics from chat replay analysis including
-    prompt counts, token usage, and buffer percentages. Formats as
-    ASCII table for terminal output.
-
     Args:
-        replay_summary: Parsed chat replay data from parse_chat_replay().
-
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> _print_replay_summary({'models': {}})  # Prints empty replay table
+        replay_summary: Parsed chat replay data.
     """
     print("REPLAY SUMMARY")
     print("-" * 70)
@@ -1899,18 +1440,9 @@ def _print_replay_summary(replay_summary: dict[str, Any]) -> None:
 def _print_model_comparison(total_tool_tokens: int, total_instruction_tokens: int) -> None:
     """Print the model comparison table.
 
-    Shows how the fixed overhead impacts different models based on their
-    context window sizes. Helps users choose optimal models.
-
     Args:
         total_tool_tokens: Total tool tokens.
         total_instruction_tokens: Total instruction tokens.
-
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
     """
     print("MODEL COMPARISON")
     print("-" * 70)
@@ -1949,24 +1481,9 @@ def _print_model_comparison(total_tool_tokens: int, total_instruction_tokens: in
 def _print_pruning_candidates(candidates: dict[str, list[dict]], show_prune: bool) -> None:
     """Print the pruning candidates section.
 
-    Displays high/medium impact tools and MCP servers that could be
-    disabled to reduce overhead. Includes actionable recommendations
-    for reducing context window usage.
-
     Args:
         candidates: Pruning candidates from identify_pruning_candidates().
         show_prune: Whether to show detailed pruning actions.
-
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> candidates = {'high_impact': [], 'medium_impact': [],
-        ...               'low_usage': [], 'actionable': []}
-        >>> _print_pruning_candidates(candidates, False)
     """
     print("PRUNING CANDIDATES")
     print("-" * 70)
@@ -2007,23 +1524,10 @@ def _print_verbose_tools(
 ) -> None:
     """Print detailed tool list (verbose mode).
 
-    Displays individual tools sorted by token count. Shows top 30 tools
-    with name, source, parameter count, and tokens. Used when --verbose
-    flag is passed to CLI.
-
     Args:
         vscode_tools: VS Code built-in tools.
         all_mcp_tools: All MCP server tools.
         active_tools: Active tools from replay (if available).
-
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> _print_verbose_tools([], [], None)  # Prints empty detailed list
     """
     print("DETAILED TOOL LIST")
     print("-" * 70)
@@ -2046,16 +1550,9 @@ def print_analysis_from_context(ctx: AnalysisContext) -> None:
     """Print analysis results from an AnalysisContext.
 
     Convenience wrapper that unpacks context and delegates to print_analysis().
-    Provides interface for testing and modular analysis output.
 
     Args:
         ctx: Analysis context containing all parameters.
-
-    Returns:
-        None - prints to stdout or JSON.
-
-    Raises:
-        No exceptions raised.
     """
     print_analysis(
         servers=ctx.servers,
@@ -2085,26 +1582,17 @@ def print_analysis(
 ) -> None:
     """Print the analysis results.
 
-    Main output function that renders analysis as ASCII tables or JSON.
-    Displays buffer usage, tool breakdown, and pruning recommendations.
-
     Args:
-        servers: MCP servers with their tools.
-        vscode_tools: VS Code built-in tools (or active tools from replay).
-        instruction_files: Instruction files found.
-        verbose: Show individual tool details.
-        as_json: Output as JSON instead of ASCII.
-        model: Model to calculate buffer usage for.
-        compare_models: Show comparison across all models.
-        replay_summary: Parsed chat replay data.
-        active_tools: Actual tools from a Copilot replay (overrides estimates).
-        show_prune: Show detailed pruning recommendations.
-
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
+        servers: MCP servers with their tools
+        vscode_tools: VS Code built-in tools (or active tools from replay)
+        instruction_files: Instruction files found
+        verbose: Show individual tool details
+        as_json: Output as JSON
+        model: Model to calculate buffer usage for
+        compare_models: Show comparison across all models
+        replay_summary: Parsed chat replay data
+        active_tools: Actual tools from a Copilot replay (overrides estimates)
+        show_prune: Show detailed pruning recommendations
 
     See Also:
         print_analysis_from_context: Wrapper accepting AnalysisContext.
@@ -2197,9 +1685,9 @@ def identify_pruning_candidates(
 ) -> PruningCandidates:
     """Identify tools that could be pruned to save context.
 
-    Analyzes all tools to find pruning opportunities categorized by impact.
-    Uses PRUNABLE_CATEGORIES for pattern matching. Provides actionable
-    recommendations for reducing context window overhead.
+    Uses PRUNABLE_CATEGORIES constant for pattern matching instead of hardcoded strings.
+    If active_tools is provided (from a chat replay), uses those for accurate
+    token counts and can identify tools that are never used.
 
     Args:
         servers: MCP servers with their tools.
@@ -2207,19 +1695,7 @@ def identify_pruning_candidates(
         active_tools: Actual tools from a replay session (optional).
 
     Returns:
-        PruningCandidates dict with:
-        - high_impact: Large tools (>400 tokens)
-        - medium_impact: Category-based (notebooks, python, etc.)
-        - low_usage: MCP servers to review
-        - actionable: Summary recommendations
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> candidates = identify_pruning_candidates(servers, tools)
-        >>> len(candidates['high_impact']) > 0
-        True
+        PruningCandidates dict with high_impact, medium_impact, low_usage, actionable lists.
     """
     candidates: PruningCandidates = {
         "high_impact": [],
@@ -2327,26 +1803,7 @@ def identify_pruning_candidates(
 
 
 def _get_pruning_action(tool_name: str, tokens: int) -> str:
-    """Get specific pruning action for a tool.
-
-    Returns actionable recommendation for common high-overhead tools.
-    Falls back to generic message with token count for unknown tools.
-    Provides guidance for reducing context window overhead.
-
-    Args:
-        tool_name: Name of the tool to get action for.
-        tokens: Token count for fallback message.
-
-    Returns:
-        Action string with specific or generic recommendation.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> _get_pruning_action('get_vscode_api', 1650)
-        'Disable if not developing VS Code extensions'
-    """
+    """Get specific pruning action for a tool."""
     # Map tool names to specific actions
     actions = {
         "run_in_terminal": "Consider using run_task instead for common operations",
@@ -2378,9 +1835,9 @@ def run_analysis(
 ) -> list[AnalysisContext]:
     """Run MCP overhead analysis and return context(s) for output.
 
-    Handles all I/O operations (MCP queries, file scanning) and returns
-    AnalysisContext objects for output rendering. Separating analysis
-    from output improves testability.
+    This function handles all I/O operations (MCP queries, file scanning)
+    and returns AnalysisContext objects that can be passed to print_analysis.
+    Separating this from main() improves testability.
 
     Args:
         workspace: Workspace path to analyze.
@@ -2394,14 +1851,6 @@ def run_analysis(
 
     Returns:
         List of AnalysisContext objects (one per model if primary_only).
-
-    Raises:
-        RuntimeError: If MCP config loading fails.
-
-    Example:
-        >>> contexts = run_analysis(Path('.'), model='claude-opus-4.5')
-        >>> len(contexts) >= 1
-        True
     """
     # Load MCP config
     config = load_mcp_config(workspace)
@@ -2476,26 +1925,7 @@ def run_analysis(
 
 
 def main() -> int:
-    """Main entry point for CLI.
-
-    Parses command-line arguments and runs MCP overhead analysis.
-    Supports JSON output, model comparison, and replay analysis modes.
-    Coordinates analysis workflow and output rendering.
-
-    Args:
-        None - reads from sys.argv via argparse.
-
-    Returns:
-        Exit code: 0 for success, non-zero for failure.
-
-    Raises:
-        No exceptions - errors handled internally.
-
-    Example:
-        >>> # CLI usage:
-        >>> # python analyze_mcp_overhead.py --json
-        >>> # python analyze_mcp_overhead.py --model claude-opus-4.5
-    """
+    """Main entry point for CLI."""
     parser = argparse.ArgumentParser(
         description="Analyze MCP tool overhead and context window usage",
         formatter_class=argparse.RawDescriptionHelpFormatter,

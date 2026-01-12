@@ -122,24 +122,7 @@ class Colors:
 
     @classmethod
     def get_priority_color(cls, priority: str | None) -> str:
-        """Get color for priority label, with lazy initialization.
-
-        Returns ANSI color code for priority-based visual feedback.
-        Uses lazy initialization for PRIORITY_COLORS dict.
-
-        Args:
-            priority: Priority label (p1-p4) or None.
-
-        Returns:
-            ANSI color code string. WHITE for unknown/None.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> Colors.get_priority_color('p1')
-            '\\033[91m'  # RED
-        """
+        """Get color for priority label, with lazy initialization."""
         if not cls.PRIORITY_COLORS:
             cls.PRIORITY_COLORS = {
                 "p1": cls.RED,
@@ -163,12 +146,6 @@ def print_color(message: str, color: str = Colors.WHITE, end: str = "\n") -> Non
         color: ANSI escape code ∈ Colors.*. Default: WHITE.
         end: Line ending. Default: newline.
 
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
-
     Examples:
         ```python
         print_color("Success!", Colors.GREEN)
@@ -189,12 +166,6 @@ def print_error(message: str) -> None:
     Args:
         message: Error description. Should be user-readable.
 
-    Returns:
-        None - prints to stderr-style output.
-
-    Raises:
-        No exceptions raised.
-
     Examples:
         ```python
         print_error("File not found: config.json")
@@ -213,12 +184,6 @@ def print_warning(message: str) -> None:
     Args:
         message: Warning description. Should explain the concern.
 
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
-
     Examples:
         ```python
         print_warning("Missing optional field: estimate")
@@ -235,12 +200,6 @@ def print_success(message: str) -> None:
 
     Args:
         message: Success description.
-
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
 
     Examples:
         ```python
@@ -259,12 +218,6 @@ def print_info(message: str) -> None:
 
     Args:
         message: Info text. No prefix added.
-
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
 
     Examples:
         ```python
@@ -335,25 +288,6 @@ class ValidationResult:
 
     @property
     def is_valid(self) -> bool:
-        """Check if validation passed with no errors.
-
-        Provides a convenient boolean check for validation success.
-        Used to gate issue creation - only valid issues are submitted.
-
-        Args:
-            None - property accessor for validation state.
-
-        Returns:
-            True if errors list is empty, False otherwise.
-
-        Raises:
-            No exceptions raised.
-
-        Example:
-            >>> result = ValidationResult(errors=[])
-            >>> result.is_valid
-            True
-        """
         return len(self.errors) == 0
 
 
@@ -708,14 +642,8 @@ def get_required_labels() -> list[Label]:
     Business: Standardizes issue labeling across projects. Enables filtering,
     reporting, and integration w/ code_quality_metrics.py.
 
-    Args:
-        None - returns fixed label set.
-
     Returns:
         list[Label]: 22 labels covering all categories. Immutable definitions.
-
-    Raises:
-        No exceptions raised.
 
     Examples:
         ```python
@@ -857,12 +785,6 @@ def write_labels_for_ai(labels: list[dict]) -> None:
     Args:
         labels: Labels ← get_repository_labels(). List of {name, description}.
 
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
-
     Examples:
         ```python
         result = get_repository_labels("owner/repo")
@@ -910,24 +832,7 @@ def write_labels_for_ai(labels: list[dict]) -> None:
         print_color("EFFORT ESTIMATE LABELS:", Colors.YELLOW)
 
         def estimate_sort_key(x: dict) -> float:
-            """Extract numeric hours from estimate label, with fallback.
-
-            Parses 'estimate: Xh' format to extract numeric value for sorting.
-            Enables proper ordering of effort estimates in display output.
-
-            Args:
-                x: Label dict with 'name' key containing estimate string.
-
-            Returns:
-                Float hours value, or 999.0 for malformed labels.
-
-            Raises:
-                No exceptions raised - catches ValueError internally.
-
-            Example:
-                >>> estimate_sort_key({'name': 'estimate: 2h'})
-                2.0
-            """
+            """Extract numeric hours from estimate label, with fallback."""
             try:
                 return float(x["name"].replace("estimate: ", "").replace("h", ""))
             except ValueError:
@@ -1014,14 +919,6 @@ def validate_issue_required_fields(issue: dict, issue_number: int) -> Validation
 
     Returns:
         ValidationResult: Errors if title missing or labels empty/missing.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> result = validate_issue_required_fields({'title': 'Fix bug'}, 1)
-        >>> result.is_valid
-        False  # Missing labels
     """
     result = ValidationResult()
 
@@ -1046,14 +943,6 @@ def validate_issue_security(issue: dict, issue_number: int) -> ValidationResult:
 
     Returns:
         ValidationResult: Errors if dangerous chars found in title or labels.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> result = validate_issue_security({'title': 'Fix; rm -rf /'}, 1)
-        >>> result.is_valid
-        False
     """
     result = ValidationResult()
 
@@ -1090,14 +979,6 @@ def validate_issue_labels(
 
     Returns:
         ValidationResult: Errors for each label not in repository.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> result = validate_issue_labels({'labels': ['nonexistent']}, [], 1)
-        >>> result.is_valid
-        False
     """
     result = ValidationResult()
     available_names = {label["name"] for label in available_labels}
@@ -1123,14 +1004,6 @@ def validate_issue_conventions(issue: dict, issue_number: int) -> ValidationResu
 
     Returns:
         ValidationResult: Warnings if missing or multiple priority/estimate labels.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> result = validate_issue_conventions({'labels': ['p1', 'p2']}, 1)
-        >>> len(result.warnings) > 0  # Multiple priorities
-        True
     """
     result = ValidationResult()
     labels = issue.get("labels", [])
@@ -1169,14 +1042,6 @@ def validate_issue_body_structure(issue: dict, issue_number: int) -> ValidationR
 
     Returns:
         ValidationResult: Errors for security issues. Warnings for missing fields.
-
-    Raises:
-        No exceptions raised.
-
-    Example:
-        >>> result = validate_issue_body_structure({'body': {}}, 1)
-        >>> len(result.warnings) > 0  # Missing recommended fields
-        True
     """
     result = ValidationResult()
     body = issue.get("body")
@@ -1295,9 +1160,6 @@ def convert_to_issue_body(body: dict, estimate: str | None, priority: str | None
     Returns:
         Markdown string. Each field becomes ### header + content.
         [Est: Xh] at top for metrics integration.
-
-    Raises:
-        No exceptions raised.
 
     Examples:
         ```python
@@ -1707,12 +1569,6 @@ def write_execution_summary(
         repo: Repository name. For GitHub links.
         issue_count: Total issues processed. For metrics display.
 
-    Returns:
-        None - prints to stdout.
-
-    Raises:
-        No exceptions raised.
-
     Examples:
         ```python
         start = time.time()
@@ -1767,16 +1623,10 @@ def main() -> int:
     Business: Orchestrates entire issue creation workflow. Provides structured
     output and exit codes for CI/CD integration and script chaining.
 
-    Args:
-        None - reads from sys.argv.
-
     Returns:
         Exit code:
             0: Operation completed successfully.
             1: Error (missing prereqs, validation failure, any creation failed).
-
-    Raises:
-        No exceptions - all errors handled internally with exit code 1.
 
     Examples:
         ```bash
