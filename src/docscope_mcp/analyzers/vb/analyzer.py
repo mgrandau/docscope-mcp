@@ -492,6 +492,15 @@ class VBAnalyzer(QualityAssessmentMixin, PriorityCalculationMixin):
                     "interface",
                     "implements",
                     "provides",
+                    "role",
+                    "impact",
+                    "business",
+                    "workflow",
+                    "accuracy",
+                    "why",
+                    "when to use",
+                    "depends on",
+                    "affects",
                 ]
             )
 

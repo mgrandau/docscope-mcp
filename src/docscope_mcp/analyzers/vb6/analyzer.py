@@ -70,6 +70,18 @@ REGEX_RETURN_DOC = re.compile(r"returns?[:\s]|result[:\s]", re.IGNORECASE)
 REGEX_AUTHOR_DOC = re.compile(r"author[:\s]|written by|created by", re.IGNORECASE)
 REGEX_DATE_DOC = re.compile(r"date[:\s]|created[:\s]|modified[:\s]", re.IGNORECASE)
 REGEX_EXAMPLE_DOC = re.compile(r"example[:\s]|usage[:\s]|sample[:\s]", re.IGNORECASE)
+# Raises/error documentation patterns
+REGEX_RAISES_KEYWORDS = re.compile(
+    r"raises?[:\s]|errors?[:\s]|exceptions?[:\s]|throws?[:\s]|"
+    r"error handling|prerequisites|preconditions|bounds|overflow|underflow",
+    re.IGNORECASE,
+)
+# Business context documentation patterns
+REGEX_BUSINESS_CONTEXT = re.compile(
+    r"business[:\s]?context|role[:\s]|impact[:\s]|purpose[:\s]|why[:\s]|"
+    r"when to use|accuracy|workflow|integration|depends on|affects?",
+    re.IGNORECASE,
+)
 
 
 class VB6Analyzer(QualityAssessmentMixin, PriorityCalculationMixin):
@@ -584,14 +596,11 @@ class VB6Analyzer(QualityAssessmentMixin, PriorityCalculationMixin):
             # Check for return value documentation
             indicators["returns_section"] = bool(REGEX_RETURN_DOC.search(docstring))
 
-            # VB6 doesn't have structured exception docs, set to False for consistency
-            indicators["raises_section"] = False
+            # Check for raises/error documentation
+            indicators["raises_section"] = bool(REGEX_RAISES_KEYWORDS.search(docstring))
 
-            # Check for metadata (author, date) - common in VB6 codebases
-            has_metadata = bool(
-                REGEX_AUTHOR_DOC.search(docstring) or REGEX_DATE_DOC.search(docstring)
-            )
-            indicators["business_context"] = has_metadata
+            # Check for business context documentation
+            indicators["business_context"] = bool(REGEX_BUSINESS_CONTEXT.search(docstring))
 
             # Check for examples
             indicators["example_section"] = bool(REGEX_EXAMPLE_DOC.search(docstring))

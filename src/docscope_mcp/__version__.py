@@ -1,6 +1,6 @@
 """Version information for docscope-mcp."""
 
-__version__ = "1.1.001"
+__version__ = "1.1.002"
 __version_date__ = "2026-01-12"
 
 __title__ = "docscope_mcp"
