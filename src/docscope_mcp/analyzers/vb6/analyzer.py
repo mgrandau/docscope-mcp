@@ -313,18 +313,17 @@ class VB6Analyzer(QualityAssessmentMixin, PriorityCalculationMixin):
 
             quality = self.assess_docstring_quality(comments, func_info["name"], func_info)
 
-            if quality["needs_improvement"]:
-                priority = self.calculate_priority(func_info, quality)
-                results.append(
-                    {
-                        "function_name": func_info["name"],
-                        "line_number": func_info["line"],
-                        "current_docstring": comments,
-                        "quality_assessment": quality,
-                        "function_info": func_info,
-                        "priority": priority,
-                    }
-                )
+            priority = self.calculate_priority(func_info, quality)
+            results.append(
+                {
+                    "function_name": func_info["name"],
+                    "line_number": func_info["line"],
+                    "current_docstring": comments,
+                    "quality_assessment": quality,
+                    "function_info": func_info,
+                    "priority": priority,
+                }
+            )
 
         # Second pass: procedures without comment blocks
         for match in REGEX_FUNCTION.finditer(code):
@@ -335,18 +334,17 @@ class VB6Analyzer(QualityAssessmentMixin, PriorityCalculationMixin):
             func_info = self._extract_procedure_info(match, code)
             quality = self.assess_docstring_quality("", func_info["name"], func_info)
 
-            if quality["needs_improvement"]:
-                priority = self.calculate_priority(func_info, quality)
-                results.append(
-                    {
-                        "function_name": func_info["name"],
-                        "line_number": func_info["line"],
-                        "current_docstring": "",
-                        "quality_assessment": quality,
-                        "function_info": func_info,
-                        "priority": priority,
-                    }
-                )
+            priority = self.calculate_priority(func_info, quality)
+            results.append(
+                {
+                    "function_name": func_info["name"],
+                    "line_number": func_info["line"],
+                    "current_docstring": "",
+                    "quality_assessment": quality,
+                    "function_info": func_info,
+                    "priority": priority,
+                }
+            )
 
         return results
 

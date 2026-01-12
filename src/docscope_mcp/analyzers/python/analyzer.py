@@ -489,18 +489,17 @@ class PythonAnalyzer(QualityAssessmentMixin, PriorityCalculationMixin):
 
                 quality = self.assess_docstring_quality(docstring, func_info["name"], func_info)
 
-                if quality["needs_improvement"]:
-                    priority = self.calculate_priority(func_info, quality)
-                    results.append(
-                        {
-                            "function_name": func_info["name"],
-                            "line_number": func_info["line"],
-                            "current_docstring": docstring,
-                            "quality_assessment": quality,
-                            "function_info": func_info,
-                            "priority": priority,
-                        }
-                    )
+                priority = self.calculate_priority(func_info, quality)
+                results.append(
+                    {
+                        "function_name": func_info["name"],
+                        "line_number": func_info["line"],
+                        "current_docstring": docstring,
+                        "quality_assessment": quality,
+                        "function_info": func_info,
+                        "priority": priority,
+                    }
+                )
 
         return results
 

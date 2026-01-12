@@ -499,15 +499,15 @@ class DocScopeMCPServer:
         """Format analysis results into human-readable report.
 
         Transforms raw analysis dicts into formatted text output for
-        MCP tool response. Provides prioritized list with quality info
-        and actionable improvement guidance.
+        MCP tool response. Shows all functions with their quality levels
+        and provides actionable improvement guidance for those needing work.
 
         Args:
             results: List of function analysis dicts from analyzer.
 
         Returns:
-            Formatted report string with prioritized functions.
-            Returns success message if results list is empty.
+            Formatted report string with all functions and quality levels.
+            Returns message if no functions found.
 
         Raises:
             KeyError: If result dict missing expected fields (logged).
@@ -515,19 +515,16 @@ class DocScopeMCPServer:
         Example:
             >>> server = DocScopeMCPServer()
             >>> text = server._format_results([])
-            >>> 'Great!' in text
+            >>> 'No functions found' in text
             True
             >>> text = server._format_results([{'function_name': 'foo', ...}])
             >>> 'foo()' in text
             True
         """
         if not results:
-            return (
-                "Great! All functions have comprehensive docstrings "
-                "that meet high quality standards."
-            )
+            return "No functions found in the analyzed code."
 
-        lines = ["Functions needing better docstrings (prioritized):"]
+        lines = ["Functions analyzed:"]
         lines.append("=" * 60)
         lines.append("NOTE: Quality assessment analyzes FULL docstrings.")
         lines.append("")
@@ -539,15 +536,20 @@ class DocScopeMCPServer:
                 line = func["line_number"]
                 quality = func["quality_assessment"]["quality"]
                 priority = func["priority"]
-                missing = ", ".join(
-                    func["quality_assessment"]["missing"][
-                        : self.config.max_missing_elements_display
-                    ]
-                )
+                needs_improvement = func["quality_assessment"]["needs_improvement"]
 
                 lines.append(f"{i}. {name}() [Line {line}]")
                 lines.append(f"   Quality: {quality.upper()} | Priority: {priority}")
-                lines.append(f"   Missing: {missing}")
+
+                if needs_improvement:
+                    missing = ", ".join(
+                        func["quality_assessment"]["missing"][
+                            : self.config.max_missing_elements_display
+                        ]
+                    )
+                    lines.append(f"   Missing: {missing}")
+                else:
+                    lines.append("   Complete: All required elements present")
 
                 if func.get("current_docstring"):
                     preview = (

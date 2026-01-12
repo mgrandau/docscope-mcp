@@ -321,14 +321,14 @@ class TestResultFormatting:
 
         Assertion Strategy:
         Validates message by confirming:
-        - Output contains success message about comprehensive docstrings.
+        - Output contains message about no functions found.
 
         Testing Principle:
-        Validates success case, ensuring positive feedback.
+        Validates empty case, ensuring informative feedback.
         """
         server = DocScopeMCPServer()
         result = server._format_results([])
-        assert "all functions have comprehensive docstrings" in result.lower()
+        assert "no functions found" in result.lower()
 
     @pytest.mark.parametrize(
         ("docstring", "priority", "expected_in_output"),
@@ -375,6 +375,7 @@ class TestResultFormatting:
                 "quality_assessment": {
                     "quality": "poor" if not docstring else "basic",
                     "missing": ["docstring"] if not docstring else [],
+                    "needs_improvement": True,
                 },
             },
         ]
@@ -410,7 +411,11 @@ class TestResultFormatting:
                 "line_number": i * 10,
                 "priority": 5,
                 "current_docstring": "",
-                "quality_assessment": {"quality": "poor", "missing": ["docstring"]},
+                "quality_assessment": {
+                    "quality": "poor",
+                    "missing": ["docstring"],
+                    "needs_improvement": True,
+                },
             }
             for i in range(15)
         ]
@@ -446,7 +451,11 @@ class TestResultFormatting:
                 "line_number": 1,
                 "priority": 5,
                 "current_docstring": "",
-                "quality_assessment": {"quality": "poor", "missing": ["docstring"]},
+                "quality_assessment": {
+                    "quality": "poor",
+                    "missing": ["docstring"],
+                    "needs_improvement": True,
+                },
             },
         ]
         formatted = server._format_results(results)
