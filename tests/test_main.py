@@ -1,28 +1,40 @@
 """Basic tests for docscope-mcp."""
 
+import re
+
 from docscope_mcp import __version__
 from docscope_mcp.analyzers.python import PythonAnalyzer
 from docscope_mcp.server import DocScopeMCPServer
 
+# Semantic versioning pattern: MAJOR.MINOR.PATCH with optional pre-release/build
+SEMVER_PATTERN = re.compile(
+    r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+)?$"
+)
+
 
 def test_version() -> None:
-    """Verifies package version is correctly defined.
+    """Verifies package version is a valid semantic version string.
 
-    Tests version string export.
+    Tests version string export and format.
 
     Business context:
     Package version is used by pip, PDM, and MCP protocol initialization.
+    Must follow semantic versioning (MAJOR.MINOR.PATCH).
 
     Arrangement:
     1. Import __version__ from package.
 
     Action:
-    Compare version string to expected value.
+    Validate version string matches semver pattern.
 
     Assertion Strategy:
-    Validates version equals '1.0.0' (current release).
+    Validates __version__ is a non-empty string matching semver format.
     """
-    assert __version__ == "1.0.0"
+    assert isinstance(__version__, str), "__version__ must be a string"
+    assert __version__, "__version__ must not be empty"
+    assert SEMVER_PATTERN.match(
+        __version__
+    ), f"__version__ '{__version__}' is not a valid semver string"
 
 
 def test_python_analyzer_available() -> None:
