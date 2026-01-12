@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-01-12
+
+Multi-language support release: adds C#, VB.NET, VB6, and C/C++ analyzers alongside existing Python support.
+
 ### Added
 
+- **C# Analyzer**: Regex-based analyzer for C# XML documentation comments
+- **VB.NET Analyzer**: Regex-based analyzer for VB.NET XML documentation comments
+- **VB6 Analyzer**: Regex-based analyzer for VB6/VBA comment blocks
+- **C/C++ Analyzer**: Regex-based analyzer for Doxygen-style documentation
 - `PriorityCalculationMixin` - shared priority scoring logic for all analyzers
 - `QualityAssessmentMixin` - shared quality assessment logic for all analyzers (DRY refactor)
 - `_validate_signature_coverage()` method in `QualityAssessmentMixin` - unified signature validation
