@@ -31,7 +31,7 @@ REGEX_METHOD = re.compile(
     r"(?P<xml_doc>(?:\s*///.*\n)*)"  # XML doc comments
     r"\s*(?P<attributes>(?:\[.*?\]\s*)*)"  # Attributes
     r"\s*(?P<modifiers>(?:public|private|protected|internal|static|virtual|override|abstract|async|sealed|partial)\s+)*"
-    r"(?P<return_type>[\w<>\[\],\s\?]+?)\s+"
+    r"(?P<return_type>[\w<>\[\],\?]+)\s+"
     r"(?P<name>\w+)\s*"
     r"\((?P<params>[^)]*)\)",
     re.MULTILINE,

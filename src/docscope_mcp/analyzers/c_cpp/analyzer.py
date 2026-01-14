@@ -59,7 +59,7 @@ class CppParsingPatterns:
         default_factory=lambda: re.compile(
             r"(?P<template>template\s*<[^>]*>\s*)?"
             r"(?P<modifiers>(?:(?:static|virtual|inline|constexpr|explicit|friend|extern)\s+)*)"
-            r"(?P<return_type>(?:const\s+)?[\w:<>&*\s]+?(?:\s*[*&]+)?)\s+"
+            r"(?P<return_type>(?:const\s+)?[\w:<>&*]+(?:\s*[*&]+)?)\s+"
             r"(?P<class_prefix>(?:\w+::)*)"
             r"(?P<name>~?\w+)\s*"
             r"\((?P<params>[^)]*)\)"
