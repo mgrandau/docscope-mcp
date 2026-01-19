@@ -27,12 +27,15 @@ from docscope_mcp.models import (
 )
 
 # Pre-compiled regex patterns for C# parsing
+# Note: modifiers uses + (not *) to require at least one modifier, preventing backtracking
+# Note: return_type excludes \s to prevent cross-line matching
 REGEX_METHOD = re.compile(
     r"(?P<xml_doc>(?:\s*///.*\n)*)"  # XML doc comments
     r"\s*(?P<attributes>(?:\[.*?\]\s*)*)"  # Attributes
-    r"\s*(?P<modifiers>(?:public|private|protected|internal|static|virtual|override|abstract|async|sealed|partial)\s+)*"
-    r"(?P<return_type>[\w<>\[\],\?]+)\s+"
-    r"(?P<name>\w+)\s*"
+    r"\s*(?P<modifiers>(?:public|private|protected|internal|static|virtual|"
+    r"override|abstract|async|sealed|partial)\s+)+"
+    r"(?P<return_type>[\w<>\[\],\?]+)"
+    r"\s+(?P<name>\w+)\s*"
     r"\((?P<params>[^)]*)\)",
     re.MULTILINE,
 )

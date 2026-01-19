@@ -47,7 +47,8 @@ class CppParsingPatterns:
             r"\s*"
             r"(?P<template>template\s*<[^>]*>\s*)?"
             r"(?P<modifiers>(?:(?:static|virtual|inline|constexpr|explicit|friend|extern)\s+)*)"
-            r"(?P<return_type>(?:const\s+)?[\w:<>&*\s]+?(?:\s*[*&]+)?)\s+"
+            # return_type excludes \s to prevent cross-line matching
+            r"(?P<return_type>(?:const\s+)?[\w:<>&*]+(?:\s*[*&]+)?)\s+"
             r"(?P<class_prefix>(?:\w+::)*)"
             r"(?P<name>~?\w+)\s*"
             r"\((?P<params>[^)]*)\)"
