@@ -1,10 +1,11 @@
 """Command-line interface for docscope-mcp.
 
-Provides installation and management commands for the DocScope MCP server.
+Provides installation, management, and analysis commands for DocScope.
 
 Commands:
     install: Configure MCP server in VS Code workspace or globally
     uninstall: Remove MCP server configuration
+    analyze: Analyze source files for documentation quality
 
 Uses FilesystemAdapter for dependency injection, enabling isolated testing
 without mocking Path operations.
@@ -18,7 +19,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from docscope_mcp.__version__ import __version__
+from docscope_mcp.analyzers import SUPPORTED_LANGUAGES, analyze_code, analyze_file
 from docscope_mcp.filesystem import DefaultFilesystemAdapter, FilesystemAdapter
+from docscope_mcp.models import DEFAULT_CONFIG
 
 # Platform constant for cross-platform detection
 WINDOWS_PLATFORM = "win32"
@@ -405,15 +408,182 @@ def uninstall_mcp(
     return 0
 
 
+def _format_analysis_results(
+    results: list[dict[str, Any]],
+    config: Any = None,
+) -> str:
+    """Format analysis results into human-readable report.
+
+    Transforms raw analysis dicts into formatted text output.
+    Shows all functions with their quality levels and provides
+    actionable improvement guidance for those needing work.
+
+    Args:
+        results: List of function analysis dicts from analyzer.
+        config: Optional AnalysisConfig for display limits.
+
+    Returns:
+        Formatted report string with all functions and quality levels.
+        Returns message if no functions found.
+
+    Raises:
+        No exceptions raised.
+
+    Example:
+        >>> text = _format_analysis_results([])
+        >>> 'No functions found' in text
+        True
+    """
+    if config is None:
+        config = DEFAULT_CONFIG
+
+    if not results:
+        return "No functions found in the analyzed code."
+
+    # Check for errors
+    if results and "error" in results[0]:
+        return f"Error: {results[0]['error']}"
+
+    lines = ["Functions analyzed:"]
+    lines.append("=" * 60)
+    lines.append("NOTE: Quality assessment analyzes FULL docstrings.")
+    lines.append("")
+
+    max_display = config.max_results_display
+    for i, func in enumerate(results[:max_display], 1):
+        try:
+            name = func["function_name"]
+            line = func["line_number"]
+            quality = func["quality_assessment"]["quality"]
+            priority = func["priority"]
+            needs_improvement = func["quality_assessment"]["needs_improvement"]
+            file_path = func.get("file_path", "")
+
+            location = f"[Line {line}]"
+            if file_path:
+                location = f"[{file_path}:{line}]"
+
+            lines.append(f"{i}. {name}() {location}")
+            lines.append(f"   Quality: {quality.upper()} | Priority: {priority}")
+
+            if needs_improvement:
+                missing = ", ".join(
+                    func["quality_assessment"]["missing"][: config.max_missing_elements_display]
+                )
+                lines.append(f"   Missing: {missing}")
+            else:
+                lines.append("   Complete: All required elements present")
+
+            if func.get("current_docstring"):
+                preview = (
+                    func["current_docstring"][: config.docstring_preview_length]
+                    .replace("\n", " ")
+                    .strip()
+                )
+                suffix = (
+                    "..."
+                    if len(func["current_docstring"]) > config.docstring_preview_length
+                    else ""
+                )
+                lines.append(f"   Current: {preview}{suffix}")
+            else:
+                lines.append("   Current: No docstring")
+            lines.append("")
+
+        except KeyError:
+            continue
+
+    if len(results) > max_display:
+        remaining = len(results) - max_display
+        lines.append(f"... and {remaining} more functions")
+
+    return "\n".join(lines)
+
+
+def run_analyze(
+    files: list[str] | None = None,
+    code: str | None = None,
+    language: str | None = None,
+    output_format: str = "text",
+) -> int:
+    """Analyze source files or code for documentation quality.
+
+    Provides CLI-equivalent functionality to the MCP server's analyze
+    tools. Supports analyzing files from disk or inline code strings.
+
+    Args:
+        files: List of file paths to analyze. Mutually exclusive with code.
+        code: Source code string to analyze. Requires language parameter.
+        language: Programming language for code analysis.
+                  Required when code is provided.
+        output_format: Output format - 'text' (human-readable) or 'json'.
+
+    Returns:
+        Exit code: 0 for success, 1 for failure.
+
+    Raises:
+        No exceptions - errors printed to stderr, returns exit code.
+
+    Example:
+        >>> run_analyze(files=['src/main.py'])
+        0
+        >>> run_analyze(code='def foo(): pass', language='python')
+        0
+    """
+    all_results: list[dict[str, Any]] = []
+
+    # Validate mutual exclusivity
+    if code and files:
+        print("Error: Cannot specify both --code and file paths", file=sys.stderr)
+        return 1
+
+    if code:
+        # Analyze inline code
+        if not language:
+            print("Error: --language is required when using --code", file=sys.stderr)
+            return 1
+
+        if language not in SUPPORTED_LANGUAGES:
+            lang_list = ", ".join(SUPPORTED_LANGUAGES)
+            print(f"Error: Unsupported language '{language}'. Use: {lang_list}", file=sys.stderr)
+            return 1
+
+        results = analyze_code(code, language, file_path="<stdin>", config=DEFAULT_CONFIG)
+        all_results.extend(results)
+
+    elif files:
+        # Analyze files
+        for file_path in files:
+            results = analyze_file(file_path, config=DEFAULT_CONFIG)
+            all_results.extend(results)
+
+    else:
+        print("Error: Provide file path(s) or use --code with --language", file=sys.stderr)
+        return 1
+
+    # Check for errors in results
+    has_error = any("error" in r for r in all_results)
+
+    # Output results
+    if output_format == "json":
+        print(json.dumps(all_results, indent=2))
+    else:
+        print(_format_analysis_results(all_results))
+
+    # Return 1 if any errors occurred, 0 otherwise
+    return 1 if has_error and not any("function_name" in r for r in all_results) else 0
+
+
 def main() -> int:
     """CLI entry point for docscope-mcp commands.
 
-    Parses command-line arguments and dispatches to install/uninstall
+    Parses command-line arguments and dispatches to install/uninstall/analyze
     handlers. Provides --version flag and help documentation.
 
     Commands:
         install: Add DocScope MCP server to VS Code config
         uninstall: Remove DocScope MCP server from config
+        analyze: Analyze source files for documentation quality
 
     Flags:
         --global, -g: Target user-level config instead of workspace
@@ -478,6 +648,38 @@ def main() -> int:
         help="Use VS Code Insiders config path (only with --global)",
     )
 
+    # Analyze command
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Analyze source files for documentation quality",
+    )
+    analyze_parser.add_argument(
+        "files",
+        nargs="*",
+        help="Source file(s) to analyze",
+    )
+    analyze_parser.add_argument(
+        "--code",
+        "-c",
+        dest="code",
+        help="Analyze inline code string (requires --language)",
+    )
+    analyze_parser.add_argument(
+        "--language",
+        "-l",
+        dest="language",
+        choices=SUPPORTED_LANGUAGES,
+        help=f"Language for inline code. One of: {', '.join(SUPPORTED_LANGUAGES)}",
+    )
+    analyze_parser.add_argument(
+        "--format",
+        "-f",
+        dest="output_format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format: text (default) or json",
+    )
+
     args = parser.parse_args()
 
     if args.command == "install":
@@ -490,6 +692,13 @@ def main() -> int:
             print("Error: --insiders requires --global", file=sys.stderr)
             return 1
         return uninstall_mcp(global_install=args.global_install, insiders=args.insiders)
+    elif args.command == "analyze":
+        return run_analyze(
+            files=args.files if args.files else None,
+            code=args.code,
+            language=args.language,
+            output_format=args.output_format,
+        )
     else:
         parser.print_help()
         return 0

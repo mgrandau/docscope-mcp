@@ -9,12 +9,14 @@ import pytest
 
 from docscope_mcp.cli import (
     WINDOWS_PLATFORM,
+    _format_analysis_results,
     copy_assets,
     get_mcp_server_config,
     get_venv_python,
     get_vscode_mcp_path,
     install_mcp,
     main,
+    run_analyze,
     uninstall_mcp,
 )
 from tests.mock_filesystem import MockFilesystemAdapter
@@ -837,3 +839,457 @@ class TestCLIAssetsHandling:
             assert len(messages) == 1
             assert "Warning:" in messages[0]
             assert "Assets not found" in messages[0]
+
+
+class TestRunAnalyze:
+    """Test suite for run_analyze function.
+
+    Categories:
+    1. File Analysis - Analyze source files from disk (2 tests)
+    2. Code Analysis - Analyze inline code strings (2 tests)
+    3. Output Formats - JSON and text output (2 tests)
+    4. Error Handling - Invalid inputs and missing files (4 tests)
+
+    Total: 10 tests.
+    """
+
+    def test_analyze_file_success(self, tmp_path: Path) -> None:
+        """Verifies successful analysis of a Python file.
+
+        Business context:
+        Primary use case - analyzing files for CI/CD pipelines.
+
+        Arrangement:
+        1. Create temp Python file with undocumented function.
+
+        Action:
+        Call run_analyze with file path.
+
+        Assertion Strategy:
+        Validates success by confirming:
+        - Return code is 0 (success).
+
+        Testing Principle:
+        Validates happy path for file analysis.
+        """
+        test_file = tmp_path / "test_module.py"
+        test_file.write_text("def foo():\n    pass\n")
+
+        result = run_analyze(files=[str(test_file)])
+        assert result == 0
+
+    def test_analyze_multiple_files(self, tmp_path: Path) -> None:
+        """Verifies analysis of multiple files.
+
+        Business context:
+        Users need to analyze multiple files in one command.
+
+        Arrangement:
+        1. Create multiple temp Python files.
+
+        Action:
+        Call run_analyze with multiple file paths.
+
+        Assertion Strategy:
+        Validates success by confirming:
+        - Return code is 0 (success).
+
+        Testing Principle:
+        Validates batch file processing.
+        """
+        file1 = tmp_path / "module1.py"
+        file1.write_text("def func1(): pass\n")
+        file2 = tmp_path / "module2.py"
+        file2.write_text("def func2(): pass\n")
+
+        result = run_analyze(files=[str(file1), str(file2)])
+        assert result == 0
+
+    def test_analyze_inline_code_success(self) -> None:
+        """Verifies successful analysis of inline code.
+
+        Business context:
+        Users need to analyze code snippets for quick checks.
+
+        Arrangement:
+        1. Prepare inline Python code string.
+
+        Action:
+        Call run_analyze with code and language.
+
+        Assertion Strategy:
+        Validates success by confirming:
+        - Return code is 0 (success).
+
+        Testing Principle:
+        Validates happy path for inline code.
+        """
+        result = run_analyze(code="def bar(): pass", language="python")
+        assert result == 0
+
+    def test_analyze_code_requires_language(self) -> None:
+        """Verifies --code requires --language flag.
+
+        Business context:
+        Language must be specified for inline code since
+        there's no file extension to detect from.
+
+        Arrangement:
+        1. Provide code without language.
+
+        Action:
+        Call run_analyze with code but no language.
+
+        Assertion Strategy:
+        Validates error by confirming:
+        - Return code is 1 (error).
+
+        Testing Principle:
+        Validates input validation for required params.
+        """
+        result = run_analyze(code="def bar(): pass", language=None)
+        assert result == 1
+
+    def test_analyze_json_output(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        """Verifies JSON output format.
+
+        Business context:
+        JSON output enables pipeline integration and parsing.
+
+        Arrangement:
+        1. Create temp Python file.
+
+        Action:
+        Call run_analyze with json format.
+
+        Assertion Strategy:
+        Validates JSON by confirming:
+        - Output is valid JSON.
+        - Contains expected structure.
+
+        Testing Principle:
+        Validates machine-readable output.
+        """
+        test_file = tmp_path / "test_module.py"
+        test_file.write_text("def foo(): pass\n")
+
+        run_analyze(files=[str(test_file)], output_format="json")
+        captured = capsys.readouterr()
+
+        # Should be valid JSON
+        data = json.loads(captured.out)
+        assert isinstance(data, list)
+        assert len(data) > 0
+        assert "function_name" in data[0]
+
+    def test_analyze_text_output(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        """Verifies human-readable text output format.
+
+        Business context:
+        Text output for developers to read directly.
+
+        Arrangement:
+        1. Create temp Python file.
+
+        Action:
+        Call run_analyze with text format (default).
+
+        Assertion Strategy:
+        Validates text by confirming:
+        - Output contains expected headers.
+        - Output is human-readable.
+
+        Testing Principle:
+        Validates human-readable output.
+        """
+        test_file = tmp_path / "test_module.py"
+        test_file.write_text("def foo(): pass\n")
+
+        run_analyze(files=[str(test_file)], output_format="text")
+        captured = capsys.readouterr()
+
+        assert "Functions analyzed:" in captured.out
+        assert "foo()" in captured.out
+
+    def test_analyze_file_not_found(self) -> None:
+        """Verifies error handling for missing file.
+
+        Business context:
+        Clear errors for troubleshooting missing files.
+
+        Arrangement:
+        1. Use non-existent file path.
+
+        Action:
+        Call run_analyze with missing file.
+
+        Assertion Strategy:
+        Validates error by confirming:
+        - Return code is 1 (error).
+
+        Testing Principle:
+        Validates error handling for missing input.
+        """
+        result = run_analyze(files=["/nonexistent/path/file.py"])
+        assert result == 1
+
+    def test_analyze_unsupported_language(self) -> None:
+        """Verifies error handling for unsupported language.
+
+        Business context:
+        Clear errors when user specifies invalid language.
+
+        Arrangement:
+        1. Use unsupported language name.
+
+        Action:
+        Call run_analyze with invalid language.
+
+        Assertion Strategy:
+        Validates error by confirming:
+        - Return code is 1 (error).
+
+        Testing Principle:
+        Validates input validation.
+        """
+        result = run_analyze(code="print('hi')", language="ruby")
+        assert result == 1
+
+    def test_analyze_no_input(self) -> None:
+        """Verifies error when no files or code provided.
+
+        Business context:
+        Users must provide some input to analyze.
+
+        Arrangement:
+        1. Call with no files and no code.
+
+        Action:
+        Call run_analyze with empty inputs.
+
+        Assertion Strategy:
+        Validates error by confirming:
+        - Return code is 1 (error).
+
+        Testing Principle:
+        Validates required input validation.
+        """
+        result = run_analyze(files=None, code=None)
+        assert result == 1
+
+    def test_analyze_code_and_files_mutually_exclusive(self, tmp_path: Path) -> None:
+        """Verifies --code and files are mutually exclusive.
+
+        Business context:
+        Ambiguous input should be rejected.
+
+        Arrangement:
+        1. Create temp file and provide code.
+
+        Action:
+        Call run_analyze with both code and files.
+
+        Assertion Strategy:
+        Validates error by confirming:
+        - Return code is 1 (error).
+
+        Testing Principle:
+        Validates input constraints.
+        """
+        test_file = tmp_path / "test.py"
+        test_file.write_text("def x(): pass")
+
+        result = run_analyze(files=[str(test_file)], code="def y(): pass", language="python")
+        assert result == 1
+
+
+class TestFormatAnalysisResults:
+    """Test suite for _format_analysis_results function.
+
+    Categories:
+    1. Empty Results - No functions found (1 test)
+    2. Error Results - Analysis errors (1 test)
+    3. Normal Results - Formatted output (1 test)
+
+    Total: 3 tests.
+    """
+
+    def test_format_empty_results(self) -> None:
+        """Verifies formatting of empty results.
+
+        Business context:
+        Empty input should produce clear message.
+
+        Arrangement:
+        1. Provide empty results list.
+
+        Action:
+        Call _format_analysis_results.
+
+        Assertion Strategy:
+        Validates message by confirming:
+        - Output contains "No functions found".
+
+        Testing Principle:
+        Validates edge case handling.
+        """
+        result = _format_analysis_results([])
+        assert "No functions found" in result
+
+    def test_format_error_results(self) -> None:
+        """Verifies formatting of error results.
+
+        Business context:
+        Errors should be clearly displayed.
+
+        Arrangement:
+        1. Provide results with error.
+
+        Action:
+        Call _format_analysis_results.
+
+        Assertion Strategy:
+        Validates message by confirming:
+        - Output contains error message.
+
+        Testing Principle:
+        Validates error display.
+        """
+        result = _format_analysis_results([{"error": "File not found"}])
+        assert "Error:" in result
+        assert "File not found" in result
+
+    def test_format_normal_results(self) -> None:
+        """Verifies formatting of normal analysis results.
+
+        Business context:
+        Results should be human-readable and informative.
+
+        Arrangement:
+        1. Provide typical analysis results.
+
+        Action:
+        Call _format_analysis_results.
+
+        Assertion Strategy:
+        Validates formatting by confirming:
+        - Contains function name.
+        - Contains quality level.
+        - Contains priority.
+
+        Testing Principle:
+        Validates output formatting.
+        """
+        results = [
+            {
+                "function_name": "test_func",
+                "line_number": 10,
+                "file_path": "test.py",
+                "current_docstring": "",
+                "quality_assessment": {
+                    "quality": "poor",
+                    "missing": ["docstring"],
+                    "needs_improvement": True,
+                },
+                "priority": 5,
+            }
+        ]
+        output = _format_analysis_results(results)
+        assert "test_func()" in output
+        assert "POOR" in output
+        assert "Priority: 5" in output
+        assert "test.py:10" in output
+
+
+class TestMainAnalyzeCommand:
+    """Tests for main() analyze command dispatch.
+
+    Test Categories:
+        1. Analyze Command - CLI argument parsing (3 tests)
+
+    Total: 3 tests.
+    """
+
+    def test_main_analyze_file(self, tmp_path: Path) -> None:
+        """Verifies main dispatches analyze command for files.
+
+        Business context:
+        CLI must route analyze command correctly.
+
+        Arrangement:
+        1. Create temp Python file.
+        2. Mock sys.argv with analyze command.
+
+        Action:
+        Call main() with analyze command.
+
+        Assertion Strategy:
+        Validates dispatch by confirming:
+        - Return code is 0 (success).
+
+        Testing Principle:
+        Validates CLI routing for analyze.
+        """
+        test_file = tmp_path / "test.py"
+        test_file.write_text("def x(): pass")
+
+        with patch.object(sys, "argv", ["docscope-mcp", "analyze", str(test_file)]):
+            result = main()
+            assert result == 0
+
+    def test_main_analyze_inline_code(self) -> None:
+        """Verifies main dispatches analyze with --code flag.
+
+        Business context:
+        CLI must handle inline code analysis.
+
+        Arrangement:
+        1. Mock sys.argv with --code and --language flags.
+
+        Action:
+        Call main() with inline code arguments.
+
+        Assertion Strategy:
+        Validates dispatch by confirming:
+        - Return code is 0 (success).
+
+        Testing Principle:
+        Validates CLI flag handling.
+        """
+        with patch.object(
+            sys, "argv", ["docscope-mcp", "analyze", "--code", "def x(): pass", "-l", "python"]
+        ):
+            result = main()
+            assert result == 0
+
+    def test_main_analyze_json_format(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        """Verifies main handles --format json flag.
+
+        Business context:
+        JSON output for pipeline integration.
+
+        Arrangement:
+        1. Create temp Python file.
+        2. Mock sys.argv with --format json.
+
+        Action:
+        Call main() with json format flag.
+
+        Assertion Strategy:
+        Validates JSON output by confirming:
+        - Output is valid JSON.
+
+        Testing Principle:
+        Validates output format flag.
+        """
+        test_file = tmp_path / "test.py"
+        test_file.write_text("def x(): pass")
+
+        with patch.object(
+            sys, "argv", ["docscope-mcp", "analyze", str(test_file), "--format", "json"]
+        ):
+            main()
+            captured = capsys.readouterr()
+            # Should be valid JSON
+            data = json.loads(captured.out)
+            assert isinstance(data, list)

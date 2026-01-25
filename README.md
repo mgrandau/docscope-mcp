@@ -40,7 +40,32 @@ docscope-mcp install --global --insiders
 
 ## Usage
 
+### MCP Server (VS Code Copilot)
+
 Once installed, the `analyze_functions` MCP tool is available in VS Code Copilot and other MCP-compatible clients.
+
+### CLI Analysis
+
+Analyze source files directly from the command line, useful for CI/CD pipelines, scripts, and terminal-based workflows:
+
+```bash
+# Analyze a single file
+docscope-mcp analyze src/main.py
+
+# Analyze multiple files
+docscope-mcp analyze src/*.py
+
+# JSON output for pipelines
+docscope-mcp analyze src/main.py --format json
+
+# Analyze inline code (requires --language)
+docscope-mcp analyze --code "def foo(): pass" --language python
+
+# Short flags
+docscope-mcp analyze -c "def foo(): pass" -l python -f json
+```
+
+**Supported languages**: `python`, `csharp`, `vb`, `vb6`, `c_cpp`
 
 ## Uninstall
 
