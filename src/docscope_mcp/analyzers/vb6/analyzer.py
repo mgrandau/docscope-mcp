@@ -44,6 +44,7 @@ REGEX_COMMENT_BLOCK = re.compile(
 )
 
 REGEX_FUNCTION = re.compile(
+    r"^\s*"  # Must start at line beginning (prevents matching in comments)
     r"(?P<modifiers>(?:Public|Private|Friend|Static)\s+)*"
     r"(?P<type>Sub|Function|Property\s+(?:Get|Let|Set))\s+"
     r"(?P<name>\w+)\s*"

@@ -850,8 +850,9 @@ class TestVB6AnalyzerEdgeCases:
         3. Friend Procedures - Friend access modifier handling (1 test)
         4. Error Handling - Exception propagation (1 test)
         5. Comment Cleaning - Comment prefix removal (1 test)
+        6. Comment False Positives - Sub/Function in comments (1 test)
 
-    Total: 5 tests.
+    Total: 6 tests.
     """
 
     def test_optional_parameters(self) -> None:
@@ -1001,6 +1002,40 @@ End Sub
         assert "Line 1" in cleaned
         assert "Line 2" in cleaned
         assert "Line 3" in cleaned
+
+    def test_no_false_positive_from_comment(self) -> None:
+        """Verifies Sub/Function in comments are not detected as declarations.
+
+        Business context:
+            Comments may reference other procedures by name; these should
+            not be mistakenly detected as actual procedure declarations.
+            Regression test for issue #8.
+
+        Arrangement:
+            1. Create VB6Analyzer with default config.
+            2. Prepare code with comment containing Sub reference.
+
+        Action:
+            Analyze code and count detected procedures.
+
+        Assertion Strategy:
+            Verify only the actual procedure is detected, not the
+            Sub reference inside the comment.
+
+        Testing Principle:
+            False positive prevention ensures accurate analysis.
+        """
+        analyzer = VB6Analyzer()
+        code = """
+' anders al geopend in Sub SendToFile(..)
+' See also: Function CalculateTotal()
+Public Sub RealProcedure(data As String)
+    MsgBox data
+End Sub
+"""
+        results = analyzer.analyze(code)
+        assert len(results) == 1
+        assert results[0]["function_name"] == "RealProcedure"
 
 
 class TestVB6AnalyzerQualityThresholds:
