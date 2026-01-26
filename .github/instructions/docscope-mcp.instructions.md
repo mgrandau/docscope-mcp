@@ -91,3 +91,11 @@ Package READMEs: overview table, code layout, public API, dependencies, invarian
 ## Git
 
 Commits: `feat:|fix:|docs:|refactor:|test:|chore:` + description. Branches: `main`, `feature/<x>`, `fix/<x>`.
+
+## Release
+
+Version badge auto-updates from GitHub releases - no manual README edits needed.
+
+```bash
+git tag vX.X.X && git push origin vX.X.X && gh release create vX.X.X --title "vX.X.X" --generate-notes
+```
