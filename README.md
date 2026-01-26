@@ -1,7 +1,11 @@
 # docscope-mcp
 
+[![Version](https://img.shields.io/badge/version-1.1.006-informational.svg)](https://github.com/mgrandau/docscope-mcp/releases)
 [![CI](https://github.com/mgrandau/docscope-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/mgrandau/docscope-mcp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/mgrandau/docscope-mcp/graph/badge.svg)](https://codecov.io/gh/mgrandau/docscope-mcp)
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
+[![Type: mypy](https://img.shields.io/badge/type-mypy-blue.svg)](https://mypy-lang.org/)
+[![Security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
