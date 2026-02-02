@@ -160,6 +160,58 @@ class DoxygenTagPatterns:
 CPP_PATTERNS = CppParsingPatterns()
 DOXYGEN_PATTERNS = DoxygenTagPatterns()
 
+# MFC macros that look like function calls but should not be documented
+MFC_MACROS: frozenset[str] = frozenset(
+    {
+        # Class implementation macros
+        "IMPLEMENT_DYNCREATE",
+        "IMPLEMENT_DYNAMIC",
+        "IMPLEMENT_SERIAL",
+        "DECLARE_DYNCREATE",
+        "DECLARE_DYNAMIC",
+        "DECLARE_SERIAL",
+        # Message map macros
+        "BEGIN_MESSAGE_MAP",
+        "END_MESSAGE_MAP",
+        "ON_COMMAND",
+        "ON_MESSAGE",
+        "ON_NOTIFY",
+        "ON_UPDATE_COMMAND_UI",
+        "ON_WM_CREATE",
+        "ON_WM_DESTROY",
+        "ON_WM_PAINT",
+        "ON_WM_SIZE",
+        "ON_WM_TIMER",
+        "ON_BN_CLICKED",
+        "ON_EN_CHANGE",
+        "ON_LBN_SELCHANGE",
+        "ON_CBN_SELCHANGE",
+        # Interface macros
+        "BEGIN_INTERFACE_MAP",
+        "END_INTERFACE_MAP",
+        "INTERFACE_PART",
+        # Dispatch map macros
+        "BEGIN_DISPATCH_MAP",
+        "END_DISPATCH_MAP",
+        "DISP_FUNCTION",
+        "DISP_PROPERTY",
+        # Event map macros
+        "BEGIN_EVENT_MAP",
+        "END_EVENT_MAP",
+        # Other common MFC/ATL macros
+        "ASSERT",
+        "VERIFY",
+        "TRACE",
+        "TRACE0",
+        "TRACE1",
+        "TRACE2",
+        "TRACE3",
+        "ASSERT_VALID",
+        "DEBUG_ONLY",
+        "RUNTIME_CLASS",
+    }
+)
+
 
 class CCppAnalyzer(QualityAssessmentMixin, PriorityCalculationMixin):
     """C/C++ documentation quality analyzer using regex-based parsing.
@@ -384,6 +436,11 @@ class CCppAnalyzer(QualityAssessmentMixin, PriorityCalculationMixin):
 
         # First pass: functions with Doxygen comments
         for match in CPP_PATTERNS.doxygen_block.finditer(code):
+            func_name = match.group("name")
+            # Skip MFC macros and invalid names
+            if not func_name or func_name in MFC_MACROS:
+                continue
+
             func_info = self._extract_function_info(match, code, has_doxygen=True)
             doxygen = self._clean_doxygen(match.group("doxygen") or "")
             processed_positions.add(match.start())
@@ -408,6 +465,11 @@ class CCppAnalyzer(QualityAssessmentMixin, PriorityCalculationMixin):
                 continue
             # Skip if this is part of a function with doxygen (already processed)
             if any(abs(match.start() - pos) < 200 for pos in processed_positions):
+                continue
+
+            func_name = match.group("name")
+            # Skip MFC macros and invalid names
+            if not func_name or func_name in MFC_MACROS:
                 continue
 
             func_info = self._extract_function_info(match, code, has_doxygen=False)

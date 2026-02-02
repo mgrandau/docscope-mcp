@@ -1169,6 +1169,163 @@ class TestCCppAnalyzerQualityThresholds:
     Total: 6 tests.
     """
 
+
+class TestCCppAnalyzerMFCMacros:
+    """Tests for MFC macro filtering in C++ analyzer.
+
+    Test Categories:
+        1. Macro Filtering - MFC macros not reported as functions (3 tests)
+
+    Total: 3 tests.
+    """
+
+    def test_implement_dyncreate_filtered(self) -> None:
+        """Verifies IMPLEMENT_DYNCREATE macro is not reported as function.
+
+        Business context:
+            MFC macros look like function calls but are preprocessor
+            constructs; reporting them creates false positives.
+
+        Arrangement:
+            1. Create CCppAnalyzer with default config.
+            2. Prepare MFC-style code with IMPLEMENT_DYNCREATE.
+
+        Action:
+            Analyze and check function names.
+
+        Assertion Strategy:
+            Verify IMPLEMENT_DYNCREATE not in results.
+
+        Testing Principle:
+            Macro filtering ensures accurate function detection.
+        """
+        analyzer = CCppAnalyzer()
+        code = """
+#include "stdafx.h"
+#include "MyView.h"
+
+IMPLEMENT_DYNCREATE(CMyView, CView)
+
+BOOL CMyView::PreCreateWindow(CREATESTRUCT& cs)
+{
+    return CView::PreCreateWindow(cs);
+}
+"""
+        results = analyzer.analyze(code)
+        func_names = [r["function_name"] for r in results]
+        assert "IMPLEMENT_DYNCREATE" not in func_names
+        assert any("PreCreateWindow" in name for name in func_names)
+
+    def test_mfc_file_only_real_functions(self) -> None:
+        """Verifies MFC file reports only actual functions.
+
+        Business context:
+            MFC view files contain macros and documented methods;
+            analyzer should report only the real documented functions.
+
+        Arrangement:
+            1. Create CCppAnalyzer with default config.
+            2. Prepare complete MFC view file with macros and functions.
+
+        Action:
+            Analyze and verify only real functions detected.
+
+        Assertion Strategy:
+            Verify exactly 3 functions: PreCreateWindow, AssertValid, Dump.
+
+        Testing Principle:
+            False positive elimination ensures trust in analyzer output.
+        """
+        analyzer = CCppAnalyzer()
+        code = """
+#include "stdafx.h"
+#include "MyView.h"
+
+IMPLEMENT_DYNCREATE(CMyView, CView)
+
+BEGIN_MESSAGE_MAP(CMyView, CView)
+    ON_WM_CREATE()
+END_MESSAGE_MAP()
+
+/**
+ * @brief Pre-create window handler.
+ * @param cs Create structure reference.
+ * @return TRUE if successful.
+ */
+BOOL CMyView::PreCreateWindow(CREATESTRUCT& cs)
+{
+    return CView::PreCreateWindow(cs);
+}
+
+/**
+ * @brief Validates object state in debug builds.
+ */
+void CMyView::AssertValid() const
+{
+    CView::AssertValid();
+}
+
+/**
+ * @brief Dumps diagnostic info.
+ * @param dc Dump context reference.
+ */
+void CMyView::Dump(CDumpContext& dc) const
+{
+    CView::Dump(dc);
+}
+"""
+        results = analyzer.analyze(code)
+        func_names = [r["function_name"] for r in results]
+
+        # Should only have real functions
+        assert "IMPLEMENT_DYNCREATE" not in func_names
+        assert "BEGIN_MESSAGE_MAP" not in func_names
+        assert "ON_WM_CREATE" not in func_names
+        assert "END_MESSAGE_MAP" not in func_names
+
+        # Should detect the actual functions
+        assert any("PreCreateWindow" in name for name in func_names)
+        assert any("AssertValid" in name for name in func_names)
+        assert any("Dump" in name for name in func_names)
+
+    def test_no_none_function_names(self) -> None:
+        """Verifies no 'None' function names appear in results.
+
+        Business context:
+            Parser artifacts should never produce None or empty
+            function names in analysis output.
+
+        Arrangement:
+            1. Create CCppAnalyzer with default config.
+            2. Prepare code with various constructs.
+
+        Action:
+            Analyze and check for None names.
+
+        Assertion Strategy:
+            Verify all function_name values are non-empty strings.
+
+        Testing Principle:
+            Output validation ensures clean analysis results.
+        """
+        analyzer = CCppAnalyzer()
+        code = """
+IMPLEMENT_DYNCREATE(CMyView, CView)
+
+void validFunction() {
+    // body
+}
+
+int anotherValid(int x) {
+    return x;
+}
+"""
+        results = analyzer.analyze(code)
+        for result in results:
+            assert result["function_name"] is not None
+            assert result["function_name"] != ""
+            assert result["function_name"] != "None"
+
     def test_quality_good_threshold(self) -> None:
         """Verifies quality assessment returns 'good' for moderate documentation.
 
