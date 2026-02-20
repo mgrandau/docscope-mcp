@@ -86,3 +86,8 @@ For AI-readable architectural contracts and detailed component documentation:
 | [src/docscope_mcp/README.md](src/docscope_mcp/README.md) | Core package architecture (server, analyzers, models) |
 | [tests/README.md](tests/README.md) | Test suite architecture, MockFilesystemAdapter |
 | [utils/README.md](utils/README.md) | Batch analysis utilities |
+
+## 💬 Community
+
+💬 [Join the Discord community](https://discord.gg/2KqjHvh5)
+
