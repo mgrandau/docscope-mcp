@@ -2,7 +2,17 @@
 
 [![GitHub release](https://img.shields.io/github/v/release/mgrandau/docscope-mcp)](https://github.com/mgrandau/docscope-mcp/releases) [![CI](https://github.com/mgrandau/docscope-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/mgrandau/docscope-mcp/actions/workflows/ci.yml) [![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/) [![Type: mypy](https://img.shields.io/badge/type-mypy-blue.svg)](https://mypy-lang.org/) [![Security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-Model Context Protocol (MCP) server that analyzes code to assess documentation quality and prioritize doc improvements.
+Scan your codebase and find the documentation that's missing, wrong, or outdated.
+
+## 🧭 Intent
+
+Documentation quality is invisible. You can measure code coverage, count lint warnings, track type errors — but "how well is this documented?" has no tooling. On large legacy codebases, functions exist with no docstrings, outdated parameter descriptions, or docs that describe what the code did three refactors ago. Nobody knows which functions are worst because there's no way to scan and rank them.
+
+This tool exists to make documentation quality **measurable and triageable.** It scores every function in a codebase, ranks them by priority, and surfaces the worst gaps — so you fix what matters instead of guessing.
+
+The design follows the [Human-AI Intent Transfer Principles](https://mgrandau.medium.com/human-ai-intent-transfer-principles-b6e7404e3d26?source=friends_link&sk=858917bd3f4a686974ed6b6c9c059ac8): the MCP interface keeps analysis in the conversation flow (intent leads), the quality scores make assessment inspectable, and the priority rankings calibrate effort by consequence.
+
+These principles shaped the project itself: the [project plan](docs/PROJECT_PLAN.md) documents goals and risk posture per phase, and the [journal](docs/journal/2025-12-11.md) captures the design tradeoffs — including why regex parsing was chosen over external AST libraries despite its known accuracy limits.
 
 ## Installation
 
