@@ -6,9 +6,11 @@ Scan your codebase and find the documentation that's missing, wrong, or outdated
 
 ## 🧭 Intent
 
-Documentation quality is invisible. You can measure code coverage, count lint warnings, track type errors — but "how well is this documented?" has no tooling. On large legacy codebases, functions exist with no docstrings, outdated parameter descriptions, or docs that describe what the code did three refactors ago. Nobody knows which functions are worst because there's no way to scan and rank them.
+Code documentation serves two audiences: humans reading it later, and AI agents reading it now. This tool pushes toward **deliberate over-documentation** — a higher degree of documentation than normally called for, placing rich context directly adjacent to the code.
 
-This tool exists to make documentation quality **measurable and triageable.** It scores every function in a codebase, ranks them by priority, and surfaces the worst gaps — so you fix what matters instead of guessing.
+This matters especially for unit tests: in Python, docstrings surface in test failure output, so a well-documented test function gives you the *why* alongside the *what failed*. More broadly, the premise is that function-level documentation is the closest context to the code itself — closer than README files, architecture docs, or wikis. By enriching every function with detailed docstrings, you make the codebase self-describing for both humans and AI agents working within limited context windows.
+
+The tool scans a codebase, scores every function's documentation quality, ranks them by priority, and surfaces the worst gaps — so you fix what matters instead of guessing. It makes documentation quality **measurable and triageable.**
 
 The design follows the [Human-AI Intent Transfer Principles](https://mgrandau.medium.com/human-ai-intent-transfer-principles-b6e7404e3d26?source=friends_link&sk=858917bd3f4a686974ed6b6c9c059ac8): the MCP interface keeps analysis in the conversation flow (intent leads), the quality scores make assessment inspectable, and the priority rankings calibrate effort by consequence.
 
